@@ -50,6 +50,23 @@ h1 {
   margin: 0 auto;
 }
 
+.tier-label {
+  grid-column: 1 / -1;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 16px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.tier-label:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
 a.card {
   display: block;
   text-decoration: none;
@@ -122,52 +139,49 @@ a.card:active {
 //      set to "" to show a placeholder icon instead
 // url: path to the game folder
 // ─────────────────────────────────────────────
-const GAMES = [
+const TIERS = [
   {
-    title: "Arkanoid Gold",
-    img:   "",
-    icon:  "🎮",
-    url:   "arkanoid-gold/",
+    label: "Has Merit",
+    games: [
+      { title: "Arkanoid Gold", img: "", icon: "🎮", url: "arkanoid-gold/" },
+      { title: "The Haunt",     img: "", icon: "👻", url: "the-haunt/" },
+    ],
   },
   {
-    title: "Dirt Money",
-    img:   "",
-    icon:  "🏁",
-    url:   "dirt-money/",
+    label: "Cool But Probably Not Viable",
+    games: [
+      { title: "Luck Be A Lady",  img: "", icon: "🎰", url: "luck-be-a-lady/" },
+      { title: "Blood Harvest",   img: "", icon: "🩸", url: "blood-harvest/" },
+    ],
   },
   {
-    title: "Luck Be A Lady",
-    img:   "",
-    icon:  "🎰",
-    url:   "luck-be-a-lady/",
-  },
-  {
-    title: "Blood Harvest",
-    img:   "",
-    icon:  "🩸",
-    url:   "blood-harvest/",
-  },
-  {
-    title: "The Haunt",
-    img:   "",
-    icon:  "👻",
-    url:   "the-haunt/",
+    label: "Rough",
+    games: [
+      { title: "Dirt Money", img: "", icon: "🏁", url: "dirt-money/" },
+    ],
   },
 ];
 
 const grid = document.getElementById('grid');
 
-GAMES.forEach(g => {
-  const a = document.createElement('a');
-  a.className = 'card';
-  a.href = g.url;
+TIERS.forEach(tier => {
+  const label = document.createElement('div');
+  label.className = 'tier-label';
+  label.textContent = tier.label;
+  grid.appendChild(label);
 
-  const thumb = g.img
-    ? `<img class="thumb" src="${g.img}" alt="${g.title}" loading="lazy">`
-    : `<div class="thumb-placeholder">${g.icon}</div>`;
+  tier.games.forEach(g => {
+    const a = document.createElement('a');
+    a.className = 'card';
+    a.href = g.url;
 
-  a.innerHTML = `${thumb}<div class="card-label">${g.title}</div>`;
-  grid.appendChild(a);
+    const thumb = g.img
+      ? `<img class="thumb" src="${g.img}" alt="${g.title}" loading="lazy">`
+      : `<div class="thumb-placeholder">${g.icon}</div>`;
+
+    a.innerHTML = `${thumb}<div class="card-label">${g.title}</div>`;
+    grid.appendChild(a);
+  });
 });
 </script>
 
