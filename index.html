@@ -111,8 +111,14 @@ a.card:active {
   font-family: 'Barlow Condensed', sans-serif;
 }
 
-.card-label {
+.card-meta {
   padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.card-label {
   font-family: 'Barlow Condensed', sans-serif;
   font-weight: 600;
   font-size: 15px;
@@ -121,6 +127,15 @@ a.card:active {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.card-date {
+  font-family: 'Barlow', sans-serif;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 </style>
 </head>
@@ -143,21 +158,21 @@ const TIERS = [
   {
     label: "Has Merit",
     games: [
-      { title: "Arkanoid Gold", img: "", icon: "🎮", url: "arkanoid-gold/" },
-      { title: "The Haunt",     img: "", icon: "👻", url: "the-haunt/" },
+      { title: "🎮 Arkanoid Gold", img: "arkanoid-gold/thumb.png", icon: "🎮", url: "arkanoid-gold/", date: "4/7/26" },
+      { title: "👻 The Haunt",     img: "the-haunt/thumb.png", icon: "👻", url: "the-haunt/", date: "4/6/26" },
     ],
   },
   {
     label: "Cool But Probably Not Viable",
     games: [
-      { title: "Luck Be A Lady",  img: "", icon: "🎰", url: "luck-be-a-lady/" },
-      { title: "Blood Harvest",   img: "", icon: "🩸", url: "blood-harvest/" },
+      { title: "🎰 Luck Be A Lady",  img: "luck-be-a-lady/thumb.png", icon: "🎰", url: "luck-be-a-lady/", date: "4/7/26" },
+      { title: "🩸 Blood Harvest",   img: "blood-harvest/thumb.png", icon: "🩸", url: "blood-harvest/", date: "4/6/26" },
     ],
   },
   {
     label: "Rough",
     games: [
-      { title: "Dirt Money", img: "", icon: "🏁", url: "dirt-money/" },
+      { title: "🏁 Dirt Money", img: "dirt-money/thumb.png", icon: "🏁", url: "dirt-money/", date: "4/6/26" },
     ],
   },
 ];
@@ -179,7 +194,7 @@ TIERS.forEach(tier => {
       ? `<img class="thumb" src="${g.img}" alt="${g.title}" loading="lazy">`
       : `<div class="thumb-placeholder">${g.icon}</div>`;
 
-    a.innerHTML = `${thumb}<div class="card-label">${g.title}</div>`;
+    a.innerHTML = `${thumb}<div class="card-meta"><span class="card-label">${g.title}</span><span class="card-date">${g.date}</span></div>`;
     grid.appendChild(a);
   });
 });
