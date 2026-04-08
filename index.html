@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Games</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700&family=Barlow:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0e0e0e;
+  --surface: #161616;
+  --border:  #272727;
+  --text:    #e8e8e8;
+  --muted:   #555;
+  --accent:  #e8b84b;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Barlow', sans-serif;
+  min-height: 100vh;
+  padding: 0 0 48px;
+}
+
+header {
+  padding: 28px 20px 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+h1 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  padding: 0 16px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+a.card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a.card:hover,
+a.card:focus {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+a.card:active {
+  transform: translateY(0);
+}
+
+.thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+  background: #111;
+}
+
+/* Placeholder when no image is provided */
+.thumb-placeholder {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  background: #111;
+  color: #333;
+  font-family: 'Barlow Condensed', sans-serif;
+}
+
+.card-label {
+  padding: 10px 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Games</h1>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<script>
+// ─────────────────────────────────────────────
+// ADD YOUR GAMES HERE
+// img: path to screenshot (e.g. "arkanoid-gold/thumb.png")
+//      set to "" to show a placeholder icon instead
+// url: path to the game folder
+// ─────────────────────────────────────────────
+const GAMES = [
+  {
+    title: "Arkanoid Gold",
+    img:   "",
+    icon:  "🎮",
+    url:   "arkanoid-gold/",
+  },
+  {
+    title: "Dirt Money",
+    img:   "",
+    icon:  "🏁",
+    url:   "dirt-money/",
+  },
+  {
+    title: "Luck Be A Lady",
+    img:   "",
+    icon:  "🎰",
+    url:   "luck-be-a-lady/",
+  },
+  {
+    title: "Blood Harvest",
+    img:   "",
+    icon:  "🩸",
+    url:   "blood-harvest/",
+  },
+  {
+    title: "The Haunt",
+    img:   "",
+    icon:  "👻",
+    url:   "the-haunt/",
+  },
+];
+
+const grid = document.getElementById('grid');
+
+GAMES.forEach(g => {
+  const a = document.createElement('a');
+  a.className = 'card';
+  a.href = g.url;
+
+  const thumb = g.img
+    ? `<img class="thumb" src="${g.img}" alt="${g.title}" loading="lazy">`
+    : `<div class="thumb-placeholder">${g.icon}</div>`;
+
+  a.innerHTML = `${thumb}<div class="card-label">${g.title}</div>`;
+  grid.appendChild(a);
+});
+</script>
+
+</body>
+</html>

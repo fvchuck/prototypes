@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Luck Be A Lady</title>
+<style>
+  html, body, #root { margin: 0; padding: 0; min-height: 100vh; background: #07070c; }
+  body { overflow-x: hidden; }
+</style>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback, useRef, useEffect } = React;
+
+// ─── SYMBOLS (all values in dollars) ─────────────────────
+// SAFE = high base, no/low synergy   GREEDY = low base, high upside
+const DEFS = {
+  penny:   { emoji:"🔹", name:"Penny",   base:0.10, desc:"Flat $0.10.",                          tier:-1 },
+  // Tier 0 — SAFE
+  pearl:   { emoji:"💠", name:"Pearl",   base:0.30, desc:"Flat $0.30. No synergies.",            tier:0 },
+  amber:   { emoji:"🔶", name:"Amber",   base:0.20, desc:"Flat $0.20. No synergies.",            tier:0 },
+  flower:  { emoji:"🌻", name:"Flower",  base:0.20, desc:"Grows +$0.10 each spin it lands.",     tier:0 },
+  // Tier 0 — GREEDY
+  seed:    { emoji:"🌱", name:"Seed",    base:0.00, desc:"Starts at $0. Grows +$0.10 each spin.",tier:0 },
+  cherry:  { emoji:"🍒", name:"Cherry",  base:0.10, desc:"+$0.20 per other Cherry (max +$0.60).",tier:0 },
+  coin:    { emoji:"🌕", name:"Coin",    base:0.10, desc:"+$0.20 per adjacent Coin (max +$0.40).",tier:0 },
+  cat:     { emoji:"🐱", name:"Cat",     base:0.00, desc:"Eats adjacent Mouse → +$0.60.",        tier:0 },
+  mouse:   { emoji:"🐭", name:"Mouse",   base:0.00, desc:"+$0.20 per empty/dead neighbor.",      tier:0 },
+  ore:     { emoji:"⛏️", name:"Ore",     base:0.10, desc:"+$0.10 per Ore same reel (max +$0.20).",tier:0 },
+  // Tier 1
+  key:     { emoji:"🔑", name:"Key",     base:0.00, desc:"Adjacent Chest → +$1.20.",             tier:1 },
+  chest:   { emoji:"📦", name:"Chest",   base:0.00, desc:"Needs adjacent Key.",                  tier:1 },
+  thief:   { emoji:"🦹", name:"Thief",   base:-0.10,desc:"-$0.10. But +$0.50 per adj Coin.",     tier:1 },
+  bomb:    { emoji:"💣", name:"Bomb",    base:-0.30,desc:"Fuse 3. Boom → +$1.20, kills adj.",    tier:1 },
+  void:    { emoji:"🕳️", name:"Void",    base:0.00, desc:"Destroys 1 random live symbol.",       tier:1 },
+  // Tier 2
+  diamond: { emoji:"💎", name:"Diamond", base:0.50, desc:"Doubled if no live neighbors.",        tier:2 },
+  crown:   { emoji:"👑", name:"Crown",   base:0.30, desc:"+$0.20 per adjacent (max +$0.80).",    tier:2 },
+  seven:   { emoji:"7️⃣",  name:"Lucky 7",base:0.70, desc:"×3 if exactly 7 live active.",        tier:2 },
+  house:   { emoji:"🏠", name:"House",   base:0.20, desc:"+$0.10 per live active (max +$0.80).", tier:2 },
+};
+
+const ACTIVE_ROWS = 4;
+const MIN_STRIP = 8;
+const SPINS_PER_ROUND = 5;
+const REEL_UNLOCK = { 3: 4, 6: 5 };
+const DEAD_SYM = { id: "dead", emoji: "💀", name: "Dead", base: 0, isDead: true };
+
+// ─── MONEY ───────────────────────────────────────────────
+const BUY_IN = 5.00;
+const BET_PER_SPIN = 0.65;
+const RENT_DOLLARS = [3.60, 5.00, 7.20, 11.00, 17.00, 27.00, 42.00, 66.00];
+const GROW_RATE = 0.10;
+const fmt = v => "$" + v.toFixed(2);
+
+// ─── REEL HELPERS ────────────────────────────────────────
+function buildStrip(symbols) {
+  const strip = [...symbols.map(s => ({ ...s }))];
+  // Add 1 dead symbol per live symbol (1:1 dilution)
+  const numDead = symbols.length;
+  for (let i = 0; i < numDead; i++) strip.push({ ...DEAD_SYM, uid: "dead_" + i });
+  // Pad to minimum strip length with more dead
+  while (strip.length < MIN_STRIP) strip.push({ ...DEAD_SYM, uid: "dead_pad_" + strip.length });
+  // shuffle
+  for (let i = strip.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [strip[i], strip[j]] = [strip[j], strip[i]];
+  }
+  return strip;
+}
+
+function getVisible(strip, offset) {
+  const n = strip.length;
+  const vis = [];
+  for (let i = 0; i < ACTIVE_ROWS + 2; i++) {
+    vis.push(strip[(offset + i) % n]);
+  }
+  // vis[0]=peek top, vis[1..4]=active, vis[5]=peek bottom
+  return vis;
+}
+
+function getActiveGrid(reels) {
+  // returns 2D array [row][col] of symbols or null
+  return Array.from({ length: ACTIVE_ROWS }, (_, row) =>
+    reels.map(r => r.visible[row + 1])
+  );
+}
+
+// ─── ADJACENCY & SCORING ─────────────────────────────────
+function adj(r, c, numCols) {
+  const out = [];
+  if (r > 0) out.push([r - 1, c]);
+  if (r < ACTIVE_ROWS - 1) out.push([r + 1, c]);
+  if (c > 0) out.push([r, c - 1]);
+  if (c < numCols - 1) out.push([r, c + 1]);
+  return out;
+}
+
+function scoreGrid(grid, numCols) {
+  const scores = Array.from({ length: ACTIVE_ROWS }, () => Array(numCols).fill(0));
+  const events = [];
+  const destroys = new Set();
+  // Only live (non-dead) symbols count for scoring
+  const flat = grid.flat().filter(s => s && !s.isDead);
+  const activeCount = flat.length;
+  const cherryCount = flat.filter(s => s.id === "cherry").length;
+
+  for (let r = 0; r < ACTIVE_ROWS; r++) {
+    for (let c = 0; c < numCols; c++) {
+      const sym = grid[r][c];
+      if (!sym || sym.isDead) continue;
+      const nbs = adj(r, c, numCols);
+      const nbSyms = nbs.map(([nr, nc]) => grid[nr][nc]).filter(s => s && !s.isDead);
+      // Dead symbols and nulls both count as "empty" for mouse
+      const emptyNbs = nbs.filter(([nr, nc]) => !grid[nr][nc] || grid[nr][nc]?.isDead).length;
+      let v = sym.base + (sym.grow || 0);
+
+      switch (sym.id) {
+        case "coin":
+          nbSyms.forEach(s => { if (s.id === "coin") v += 0.20; });
+          break;
+        case "cherry":
+          v += Math.min(cherryCount - 1, 3) * 0.20;
+          break;
+        case "cat":
+          nbs.forEach(([nr, nc]) => {
+            if (grid[nr][nc]?.id === "mouse") {
+              v += 0.60; destroys.add(`${nr},${nc}`);
+              events.push("🐱 ate 🐭 +$0.60");
+            }
+          });
+          break;
+        case "mouse":
+          v += emptyNbs * 0.20;
+          break;
+        case "ore": {
+          let oreOnReel = 0;
+          for (let rr = 0; rr < ACTIVE_ROWS; rr++) {
+            if (rr !== r && grid[rr][c]?.id === "ore") oreOnReel++;
+          }
+          v += Math.min(oreOnReel, 2) * 0.10;
+          break;
+        }
+        case "key":
+          nbs.forEach(([nr, nc]) => {
+            if (grid[nr][nc]?.id === "chest") {
+              v += 1.20; events.push("🔑→📦 +$1.20");
+            }
+          });
+          break;
+        case "thief":
+          nbSyms.forEach(s => { if (s.id === "coin") v += 0.50; });
+          break;
+        case "diamond":
+          if (nbSyms.length === 0) v *= 2;
+          break;
+        case "crown":
+          v += Math.min(nbSyms.length, 4) * 0.20;
+          break;
+        case "seven":
+          if (activeCount === 7) { v *= 3; events.push("7️⃣ ×3!"); }
+          break;
+        case "house":
+          v += Math.min(activeCount, 8) * 0.10;
+          break;
+        case "bomb": {
+          const fuse = (sym.fuse ?? 3) - 1;
+          sym.fuse = fuse;
+          if (fuse <= 0) {
+            v = 1.20; destroys.add(`${r},${c}`);
+            nbs.forEach(([nr, nc]) => { if (grid[nr][nc] && !grid[nr][nc].isDead) destroys.add(`${nr},${nc}`); });
+            events.push("💣 BOOM +$1.20");
+          } else events.push(`💣 fuse ${fuse}`);
+          break;
+        }
+        case "void": {
+          const targets = [];
+          for (let rr = 0; rr < ACTIVE_ROWS; rr++)
+            for (let cc = 0; cc < numCols; cc++)
+              if (grid[rr][cc] && !grid[rr][cc].isDead && !(rr === r && cc === c)) targets.push(`${rr},${cc}`);
+          if (targets.length) {
+            const t = targets[Math.floor(Math.random() * targets.length)];
+            destroys.add(t);
+            const [tr, tc] = t.split(",").map(Number);
+            events.push(`🕳️→${grid[tr][tc].emoji}`);
+          }
+          break;
+        }
+      }
+      scores[r][c] = +v.toFixed(2);
+    }
+  }
+
+  // grow flowers & seeds (dollar increment)
+  for (let r = 0; r < ACTIVE_ROWS; r++)
+    for (let c = 0; c < numCols; c++)
+      if ((grid[r][c]?.id === "flower" || grid[r][c]?.id === "seed") && !destroys.has(`${r},${c}`))
+        grid[r][c].grow = +((grid[r][c].grow || 0) + GROW_RATE).toFixed(2);
+
+  const total = scores.flat().reduce((a, b) => a + b, 0);
+  return { scores, total, events, destroys };
+}
+
+function getDraft(round) {
+  const maxTier = round < 3 ? 0 : round < 6 ? 1 : 2;
+  const pool = Object.entries(DEFS).filter(([, d]) => d.tier >= 0 && d.tier <= maxTier);
+  const picks = [];
+  const seen = new Set();
+  while (picks.length < 3) {
+    const [id, def] = pool[Math.floor(Math.random() * pool.length)];
+    if (!seen.has(id)) {
+      seen.add(id);
+      picks.push({ id, ...def, uid: Math.random().toString(36).slice(2, 8), grow: 0, fuse: id === "bomb" ? 3 : undefined });
+    }
+  }
+  return picks;
+}
+
+// ═════════════════════════════════════════════════════════
+// STARTER REELS — 1 Penny per reel
+// ═════════════════════════════════════════════════════════
+function makePenny() {
+  return { id: "penny", ...DEFS.penny, uid: Math.random().toString(36).slice(2, 8), grow: 0 };
+}
+function makeStarters() {
+  const pennies = [makePenny(), makePenny(), makePenny()];
+  const rd = [
+    [pennies[0]],
+    [pennies[1]],
+    [pennies[2]],
+    [], // reel 4 (locked)
+    [], // reel 5 (locked)
+  ];
+  const coll = pennies.map((p, i) => ({ ...p, reelIdx: i }));
+  return { rd, coll };
+}
+
+// ═════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═════════════════════════════════════════════════════════
+function LBaL() {
+  const initRef = useRef(makeStarters());
+  const [phase, setPhase] = useState("draft");
+  const [reelData, setReelData] = useState(() => initRef.current.rd);
+  const [reelVis, setReelVis] = useState([]);
+  const [numReels, setNumReels] = useState(3);
+  const [collection, setCollection] = useState(() => initRef.current.coll);
+  const [round, setRound] = useState(1);
+  const [spinsThisRound, setSpinsThisRound] = useState(0);
+  const [bal, setBal] = useState(BUY_IN);
+  const [earned, setEarned] = useState(0);
+  const [choices, setChoices] = useState(() => getDraft(1));
+  const [pending, setPending] = useState(null); // symbol awaiting reel assignment
+  const [scores, setScores] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [destroySet, setDestroySet] = useState(new Set());
+  const [lastWin, setLastWin] = useState(null);
+  const [anim, setAnim] = useState(null);
+  const [spinCount, setSpinCount] = useState(0);
+  const [reelAdded, setReelAdded] = useState(null);
+  const [tooltip, setTooltip] = useState(null); // { emoji, name, desc, base, grow }
+  const T = useRef([]);
+  const clr = () => { T.current.forEach(clearTimeout); T.current = []; };
+  useEffect(() => () => clr(), []);
+
+  const rent = RENT_DOLLARS[Math.min(round - 1, RENT_DOLLARS.length - 1)];
+  const spinsLeft = SPINS_PER_ROUND - spinsThisRound;
+
+  // ─── REBUILD REELS ───
+  const rebuildReels = useCallback((rd, nr) => {
+    return rd.slice(0, nr).map(syms => {
+      const strip = buildStrip(syms);
+      const offset = Math.floor(Math.random() * strip.length);
+      const visible = getVisible(strip, offset);
+      return { strip, offset, visible };
+    });
+  }, []);
+
+  // ─── DRAFT ───
+  const pickSymbol = (sym) => {
+    setPending(sym);
+    setPhase("assignReel");
+  };
+
+  const assignToReel = (reelIdx) => {
+    if (!pending || reelIdx >= numReels) return;
+    const newSym = { ...pending, uid: Math.random().toString(36).slice(2, 8), grow: 0 };
+    const newRD = reelData.map((r, i) => i === reelIdx ? [...r, newSym] : [...r]);
+    // Ensure we have enough reel arrays
+    while (newRD.length < 5) newRD.push([]);
+    setReelData(newRD);
+    setCollection(prev => [...prev, { ...newSym, reelIdx }]);
+    setPending(null);
+
+    // Build reels and go to spin
+    const vis = rebuildReels(newRD, numReels);
+    setReelVis(vis);
+    setScores(null);
+    setEvents([]);
+    setDestroySet(new Set());
+    setLastWin(null);
+    setPhase("spin");
+  };
+
+  // ─── SPIN ───
+  const doSpin = useCallback(() => {
+    if (phase !== "spin" || collection.length === 0 || bal < BET_PER_SPIN) return;
+    clr();
+    setBal(b => +(b - BET_PER_SPIN).toFixed(2));
+    setAnim("tumble");
+    setScores(null);
+    setEvents([]);
+    setDestroySet(new Set());
+    setLastWin(null);
+    setTooltip(null);
+
+    // animate: rapid reel changes
+    const frames = 8;
+    for (let f = 0; f < frames; f++) {
+      T.current.push(setTimeout(() => {
+        setReelVis(rebuildReels(reelData, numReels));
+      }, f * 80));
+    }
+
+    const settleStart = frames * 80 + 50;
+    // final result — each reel settles with stagger
+    const finalReels = rebuildReels(reelData, numReels);
+
+    finalReels.forEach((_, ri) => {
+      T.current.push(setTimeout(() => {
+        setReelVis(prev => {
+          const next = [...prev];
+          next[ri] = finalReels[ri];
+          return next;
+        });
+      }, settleStart + ri * 150));
+    });
+
+    const allSettled = settleStart + numReels * 150 + 100;
+    T.current.push(setTimeout(() => {
+      setAnim("settle");
+    }, settleStart));
+
+    T.current.push(setTimeout(() => {
+      setAnim(null);
+      // score the active grid
+      const grid = getActiveGrid(finalReels);
+      const result = scoreGrid(grid, numReels);
+      const pay = +Math.max(0, result.total).toFixed(2);
+
+      setScores(result.scores);
+      setEvents(result.events);
+      setDestroySet(result.destroys);
+      setLastWin(pay);
+      setBal(b => +(b + pay).toFixed(2));
+      setEarned(e => +(e + pay).toFixed(2));
+      setSpinCount(c => c + 1);
+      setSpinsThisRound(c => c + 1);
+
+      // persist grow values back to reelData
+      setReelData(prev => {
+        const newRD = prev.map(r => r.map(s => ({ ...s })));
+        for (let row = 0; row < ACTIVE_ROWS; row++) {
+          for (let col = 0; col < numReels; col++) {
+            const cell = grid[row]?.[col];
+            if (cell && !cell.isDead && (cell.id === "flower" || cell.id === "seed") && cell.grow > 0) {
+              const reel = newRD[col];
+              if (reel) {
+                const idx = reel.findIndex(s => s.uid === cell.uid);
+                if (idx >= 0) reel[idx].grow = cell.grow;
+              }
+            }
+          }
+        }
+        return newRD;
+      });
+
+      // handle destroys — remove from reelData
+      if (result.destroys.size > 0) {
+        T.current.push(setTimeout(() => {
+          setReelData(prev => {
+            const newRD = prev.map(r => [...r]);
+            result.destroys.forEach(key => {
+              const [row, col] = key.split(",").map(Number);
+              const sym = grid[row]?.[col];
+              if (sym && newRD[col]) {
+                const idx = newRD[col].findIndex(s => s?.uid === sym.uid);
+                if (idx >= 0) newRD[col].splice(idx, 1);
+              }
+            });
+            return newRD;
+          });
+          setCollection(prev => {
+            const deadUids = new Set();
+            result.destroys.forEach(key => {
+              const [row, col] = key.split(",").map(Number);
+              const sym = grid[row]?.[col];
+              if (sym) deadUids.add(sym.uid);
+            });
+            return prev.filter(s => !deadUids.has(s.uid));
+          });
+        }, 500));
+      }
+
+      const newSpins = spinsThisRound + 1;
+      if (newSpins >= SPINS_PER_ROUND) {
+        T.current.push(setTimeout(() => setPhase("rent"), 1000));
+      } else {
+        T.current.push(setTimeout(() => {
+          setPhase("draft");
+          setChoices(getDraft(round));
+        }, 800));
+      }
+    }, allSettled + 200));
+  }, [phase, collection, reelData, numReels, round, spinsThisRound, rebuildReels, bal]);
+
+  // ─── ROUND COST ───
+  const payRent = () => {
+    if (bal >= rent) {
+      setBal(b => +(b - rent).toFixed(2));
+      const nextRound = round + 1;
+      setRound(nextRound);
+      setSpinsThisRound(0);
+      setEarned(0);
+
+      // Check reel unlock
+      let nr = numReels;
+      if (REEL_UNLOCK[round] && numReels < REEL_UNLOCK[round]) {
+        nr = REEL_UNLOCK[round];
+        setNumReels(nr);
+        setReelAdded(nr);
+        // ensure reelData has enough entries, seed new reels with a penny
+        setReelData(prev => {
+          const rd = [...prev];
+          while (rd.length < nr) {
+            const p = makePenny();
+            rd.push([p]);
+            setCollection(c => [...c, { ...p, reelIdx: rd.length - 1 }]);
+          }
+          return rd;
+        });
+        setTimeout(() => setReelAdded(null), 2000);
+      }
+
+      setPhase("draft");
+      setChoices(getDraft(nextRound));
+    } else {
+      setPhase("gameover");
+    }
+  };
+
+  const restart = () => {
+    clr();
+    const s = makeStarters();
+    setPhase("draft"); setReelData(s.rd); setReelVis([]);
+    setNumReels(3); setCollection(s.coll); setRound(1); setSpinsThisRound(0);
+    setBal(BUY_IN); setEarned(0); setChoices(getDraft(1));
+    setPending(null); setScores(null); setEvents([]);
+    setDestroySet(new Set()); setLastWin(null); setAnim(null);
+    setSpinCount(0); setReelAdded(null); setTooltip(null);
+  };
+
+  // ─── RENDER ────────────────────────────────────────────
+  const reelSymCounts = reelData.slice(0, numReels).map(r => r.length);
+
+  return (
+    <div style={S.root}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=DM+Mono:wght@400;500&family=Noto+Color+Emoji&family=Outfit:wght@400;600;700&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+
+        @keyframes tumbleCell{
+          0%{transform:translateY(0)}
+          100%{transform:translateY(60px)}
+        }
+        @keyframes settlePop{
+          0%{transform:scale(0.7);opacity:0.3}
+          60%{transform:scale(1.08);opacity:1}
+          100%{transform:scale(1);opacity:1}
+        }
+        @keyframes glowPulse{
+          0%,100%{box-shadow:0 0 4px rgba(255,215,0,0.15)}
+          50%{box-shadow:0 0 16px rgba(255,215,0,0.5)}
+        }
+        @keyframes destroyFlash{
+          0%{transform:scale(1);opacity:1}
+          40%{transform:scale(1.3);filter:brightness(2.5);opacity:0.8}
+          100%{transform:scale(0);opacity:0}
+        }
+        @keyframes slideUp{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes reelUnlock{0%{transform:scaleX(0);opacity:0}60%{transform:scaleX(1.1);opacity:1}100%{transform:scaleX(1)}}
+
+        .cell-settle{animation:settlePop 0.25s cubic-bezier(0.34,1.56,0.64,1) both}
+        .cell-glow{animation:glowPulse 1.2s ease-in-out infinite}
+        .cell-destroy{animation:destroyFlash 0.5s ease-out forwards}
+        .reel-new{animation:reelUnlock 0.5s cubic-bezier(0.34,1.56,0.64,1) both}
+
+        .draft-card{transition:transform 0.12s,border-color 0.12s}
+        .draft-card:active{transform:scale(0.95)!important;border-color:#FFD700!important}
+        .reel-pick{transition:transform 0.1s,border-color 0.1s,background 0.1s}
+        .reel-pick:active{transform:scale(0.97)!important}
+      `}</style>
+
+      {/* HEADER */}
+      <div style={S.hdr}>
+        <div style={S.hL}>
+          <span style={{fontSize:24}}>{phase==="gameover"?"💔":phase==="cashout"?"💰":"🎰"}</span>
+          <div>
+            <div style={S.hT}>LUCK BE A LADY</div>
+            <div style={S.hS}>Round {round}</div>
+          </div>
+        </div>
+        {/* Prominent spins counter */}
+        <div style={{
+          ...S.spinsCounter,
+          borderColor: spinsLeft <= 1 ? "#FF6B6B44" : "#1e1e2a",
+          background: spinsLeft <= 1 ? "linear-gradient(145deg, #201515, #180f0f)" : "linear-gradient(145deg, #151520, #0f0f18)",
+        }}>
+          <div style={{...S.spinsNum, color: spinsLeft <= 1 ? "#FF6B6B" : "#FFD700"}}>{spinsLeft}</div>
+          <div style={S.spinsLabel}>SPINS LEFT</div>
+        </div>
+      </div>
+
+      {/* STATS */}
+      <div style={S.bar}>
+        <div style={S.stat}>
+          <div style={S.statL}>BANK</div>
+          <div style={{...S.statV, color: "#FFD700"}}>{fmt(bal)}</div>
+        </div>
+        <div style={S.barDiv}/>
+        <div style={S.stat}>
+          <div style={S.statL}>EARNED</div>
+          <div style={{...S.statV, color: "#6BCB77"}}>{fmt(earned)}</div>
+        </div>
+        <div style={S.barDiv}/>
+        <div style={S.stat}>
+          <div style={{...S.statL, color: spinsLeft <= 1 ? "#FF6B6B" : "#555"}}>
+            {spinsLeft === 0 ? "DUE NOW" : `DUE IN ${spinsLeft}`}
+          </div>
+          <div style={{...S.statV, color: "#FF6B6B"}}>{fmt(rent)}</div>
+        </div>
+      </div>
+
+      {/* REEL UNLOCK BANNER */}
+      {reelAdded && (
+        <div style={S.unlockBanner}>
+          <span style={{fontSize:16}}>🎰</span> REEL {reelAdded} UNLOCKED!
+        </div>
+      )}
+
+      {/* ═══ REELS ═══ */}
+      <div style={S.reelsWrap}>
+        <div style={{...S.reelsRow, gridTemplateColumns: `repeat(${numReels}, 1fr)`}}>
+          {Array.from({ length: numReels }, (_, ri) => {
+            const vis = reelVis[ri]?.visible || Array(6).fill(null);
+            const isNew = reelAdded === ri + 1 ? "reel-new" : "";
+            return (
+              <div key={ri} className={isNew} style={S.reel}>
+                {/* Reel label */}
+                <div style={S.reelLabel}>R{ri + 1} <span style={{color:"#555"}}>({reelSymCounts[ri] || 0})</span></div>
+                {vis.map((cell, ci) => {
+                  const isPeek = ci === 0 || ci === 5;
+                  const isActive = ci >= 1 && ci <= 4;
+                  const activeRow = ci - 1;
+                  const isDeadSym = cell?.isDead;
+                  const isGlow = isActive && !isDeadSym && scores?.[activeRow]?.[ri] > 0;
+                  const isDestroyed = isActive && destroySet.has(`${activeRow},${ri}`);
+                  const sc = isActive && !isDeadSym ? scores?.[activeRow]?.[ri] : null;
+                  const isTumbling = anim === "tumble";
+
+                  return (
+                    <div
+                      key={ci}
+                      className={`${isActive && !isTumbling && cell ? "cell-settle" : ""} ${isGlow && !isDestroyed ? "cell-glow" : ""} ${isDestroyed ? "cell-destroy" : ""}`}
+                      onClick={() => {
+                        if (cell && !cell.isDead && !isPeek) {
+                          const def = DEFS[cell.id] || {};
+                          setTooltip(prev =>
+                            prev?.uid === cell.uid ? null : {
+                              uid: cell.uid, emoji: cell.emoji, name: cell.name || def.name,
+                              desc: def.desc || "", base: cell.base,
+                              grow: cell.grow || 0, id: cell.id,
+                            }
+                          );
+                        }
+                      }}
+                      style={{
+                        ...S.cell,
+                        ...(isPeek ? S.peekCell : {}),
+                        ...(isPeek && ci === 0 ? S.peekTop : {}),
+                        ...(isPeek && ci === 5 ? S.peekBot : {}),
+                        background: cell
+                          ? (isDeadSym ? (isPeek ? "#08080e" : "#0c0c14") : (isPeek ? "#0a0a12" : (isGlow ? "#151520" : "#111119")))
+                          : (isPeek ? "#08080e" : "#0c0c15"),
+                        borderColor: isPeek ? "#111118" : (isDeadSym ? "#141420" : (isGlow ? "#FFD70044" : "#1a1a28")),
+                        animationDelay: `${ri * 100}ms`,
+                        cursor: cell && !cell.isDead && !isPeek ? "pointer" : "default",
+                      }}
+                    >
+                      {cell ? (
+                        <span style={{
+                          fontSize: isPeek ? 18 : (isDeadSym ? 16 : 24),
+                          lineHeight: 1,
+                          filter: isTumbling ? "blur(1.5px)" : (isPeek ? "grayscale(0.85) brightness(0.5)" : (isDeadSym ? "grayscale(0.9) brightness(0.35)" : "none")),
+                          transition: "filter 0.15s",
+                          opacity: isDeadSym && !isPeek ? 0.4 : 1,
+                        }}>
+                          {cell.emoji}
+                        </span>
+                      ) : (
+                        <span style={{fontSize: 8, color: isPeek ? "#0e0e16" : "#171722"}}>•</span>
+                      )}
+                      {/* Grow value badge for flowers & seeds */}
+                      {cell && !isPeek && !isDeadSym && (cell.id === "flower" || cell.id === "seed") && (
+                        <span style={S.growBadge}>
+                          {fmt(cell.base + (cell.grow || 0))}
+                        </span>
+                      )}
+                      {/* Score float */}
+                      {sc != null && sc !== 0 && !isTumbling && isActive && (
+                        <span style={{
+                          ...S.scoreFloat,
+                          color: sc > 0 ? "#6BCB77" : "#FF6B6B",
+                          animation: "slideUp 0.3s ease-out both",
+                          animationDelay: `${ri * 80 + 100}ms`,
+                        }}>
+                          {sc > 0 ? "+" : ""}{fmt(sc)}
+                        </span>
+                      )}
+                      {/* Bomb fuse */}
+                      {cell?.id === "bomb" && cell.fuse != null && cell.fuse < 3 && isActive && (
+                        <span style={S.fuseBadge}>{cell.fuse}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* TOOLTIP */}
+      {tooltip && (
+        <div style={S.tooltip} onClick={() => setTooltip(null)}>
+          <div style={S.tooltipInner}>
+            <span style={{ fontSize: 28 }}>{tooltip.emoji}</span>
+            <div style={{ flex: 1 }}>
+              <div style={S.tooltipName}>{tooltip.name}</div>
+              <div style={S.tooltipDesc}>{tooltip.desc}</div>
+              <div style={S.tooltipStats}>
+                Base: {fmt(tooltip.base)}
+                {tooltip.grow > 0 && <span style={{ color: "#6BCB77" }}> + {fmt(tooltip.grow)} grown = {fmt(tooltip.base + tooltip.grow)}</span>}
+              </div>
+            </div>
+            <span style={{ fontSize: 10, color: "#444", alignSelf: "flex-start" }}>✕</span>
+          </div>
+        </div>
+      )}
+
+      {/* EVENTS */}
+      {events.length > 0 && (
+        <div style={S.evWrap}>
+          {events.map((e, i) => <span key={i} style={S.evBadge}>{e}</span>)}
+        </div>
+      )}
+
+      {/* WIN DISPLAY */}
+      {lastWin != null && phase !== "rent" && phase !== "gameover" && phase !== "cashout" && (
+        <div style={{...S.winBar, animation:"slideUp 0.25s ease-out"}}>
+          {lastWin > 0 ? (
+            <><span style={S.winTag}>WIN</span><span style={S.winAmt}>+{fmt(lastWin)}</span></>
+          ) : (
+            <span style={{...S.winTag, color:"#444"}}>MISS</span>
+          )}
+        </div>
+      )}
+
+      {/* ═══ DRAFT PHASE ═══ */}
+      {phase === "draft" && (
+        <div style={{...S.panel, animation:"fadeIn 0.3s"}}>
+          <div style={S.panelTitle}>
+            {collection.length === 0 ? "DRAFT YOUR FIRST SYMBOL" : "ADD A SYMBOL"}
+          </div>
+          <div style={S.draftRow}>
+            {choices.map(s => (
+              <button key={s.uid} className="draft-card" style={S.draftCard} onClick={() => pickSymbol(s)}>
+                <span style={{fontSize:30}}>{s.emoji}</span>
+                <span style={S.draftName}>{s.name}</span>
+                <span style={S.draftDesc}>{s.desc}</span>
+                <span style={S.draftBase}>Base: {fmt(s.base)}</span>
+              </button>
+            ))}
+          </div>
+          {round > 1 && (
+            <button onClick={() => setPhase("cashout")} style={{...S.cashBtn, marginTop: 8}}>
+              CASH OUT {fmt(bal)}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ═══ ASSIGN REEL ═══ */}
+      {phase === "assignReel" && pending && (
+        <div style={{...S.panel, animation:"fadeIn 0.2s"}}>
+          <div style={S.panelTitle}>
+            PLACE {pending.emoji} {pending.name.toUpperCase()} ON A REEL
+          </div>
+          <div style={{...S.draftRow, gap: 8}}>
+            {Array.from({ length: numReels }, (_, ri) => (
+              <button key={ri} className="reel-pick" style={S.reelPickBtn} onClick={() => assignToReel(ri)}>
+                <span style={S.reelPickLabel}>REEL {ri + 1}</span>
+                <span style={S.reelPickCount}>{reelSymCounts[ri] || 0} symbols</span>
+                <div style={S.reelPickIcons}>
+                  {reelData[ri]?.map((s, si) => (
+                    <span key={si} style={{fontSize: 14}}>{s.emoji}</span>
+                  ))}
+                  {(!reelData[ri] || reelData[ri].length === 0) && (
+                    <span style={{fontSize: 10, color: "#444"}}>empty</span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ SPIN PHASE ═══ */}
+      {phase === "spin" && (
+        <div style={S.panel}>
+          <div style={{textAlign:"center", marginBottom: 6}}>
+            <span style={{fontSize: 10, color: "#555", fontFamily: "DM Mono"}}>
+              BET {fmt(BET_PER_SPIN)} PER SPIN
+            </span>
+          </div>
+          <button onClick={doSpin} disabled={anim !== null || bal < BET_PER_SPIN}
+            style={{
+              ...S.spinBtn,
+              opacity: (anim || bal < BET_PER_SPIN) ? 0.4 : 1,
+              animation: !anim && bal >= BET_PER_SPIN ? "pulse 2s ease-in-out infinite" : "none",
+            }}>
+            {anim ? "SPINNING…" : bal < BET_PER_SPIN ? "CAN'T AFFORD SPIN" : "SPIN"}
+          </button>
+          {!anim && (
+            <div style={{display: "flex", gap: 6, marginTop: 6}}>
+              {bal < BET_PER_SPIN && (
+                <button onClick={() => setPhase("rent")} style={{...S.cashBtn, flex: 1}}>
+                  END ROUND
+                </button>
+              )}
+              {round > 1 && (
+                <button onClick={() => setPhase("cashout")} style={{...S.cashBtn, flex: 1}}>
+                  CASH OUT {fmt(bal)}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ RENT DUE ═══ */}
+      {phase === "rent" && (
+        <div style={S.ov}><div style={S.modal}>
+          <span style={{fontSize:40}}>🎰</span>
+          <div style={S.mTitle}>RENT DUE</div>
+          <div style={S.mLine}>You owe <strong style={{color:"#FF6B6B"}}>{fmt(rent)}</strong></div>
+          <div style={S.mLine}>
+            Balance: <strong style={{color: bal >= rent ? "#6BCB77" : "#FF6B6B"}}>{fmt(bal)}</strong>
+          </div>
+          {REEL_UNLOCK[round] && numReels < REEL_UNLOCK[round] && bal >= rent && (
+            <div style={{...S.mLine, color:"#FFD700", marginTop: 8}}>
+              🎰 Reel {REEL_UNLOCK[round]} unlocks next round!
+            </div>
+          )}
+          <div style={{marginTop: 16, width: "100%"}}>
+            {bal >= rent ? (
+              <button onClick={payRent} style={S.goldBtn}>PAY {fmt(rent)}</button>
+            ) : (
+              <button onClick={() => setPhase("gameover")}
+                style={{...S.goldBtn, background:"linear-gradient(135deg,#FF6B6B,#C0392B)"}}>
+                BUST
+              </button>
+            )}
+          </div>
+        </div></div>
+      )}
+
+      {/* ═══ CASH OUT ═══ */}
+      {phase === "cashout" && (
+        <div style={S.ov}><div style={S.modal}>
+          <span style={{fontSize:40}}>💰</span>
+          <div style={S.mTitle}>CASHED OUT</div>
+          <div style={{fontSize: 28, fontWeight: 700, fontFamily: "DM Mono", color: "#6BCB77", margin: "8px 0"}}>
+            {fmt(bal)}
+          </div>
+          <div style={S.mLine}>
+            {bal >= BUY_IN
+              ? <span style={{color:"#6BCB77"}}>Profit: +{fmt(bal - BUY_IN)}</span>
+              : <span style={{color:"#FF6B6B"}}>Loss: {fmt(bal - BUY_IN)}</span>
+            }
+          </div>
+          <div style={S.mLine}>
+            <strong>{round - 1}</strong> round{round !== 2 ? "s" : ""} · <strong>{spinCount}</strong> spins · <strong>{collection.length}</strong> symbols
+          </div>
+          <button onClick={restart} style={{...S.goldBtn, marginTop: 16}}>PLAY AGAIN</button>
+        </div></div>
+      )}
+
+      {/* ═══ GAME OVER ═══ */}
+      {phase === "gameover" && (
+        <div style={S.ov}><div style={S.modal}>
+          <span style={{fontSize:40}}>💔</span>
+          <div style={S.mTitle}>BUST</div>
+          <div style={S.mLine}>Couldn't cover the {fmt(rent)} cost.</div>
+          <div style={{fontSize: 20, fontWeight: 700, fontFamily: "DM Mono", color: "#FF6B6B", margin: "4px 0"}}>
+            -{fmt(BUY_IN)}
+          </div>
+          <div style={S.mLine}>
+            <strong>{round - 1}</strong> round{round !== 2 ? "s" : ""} · <strong>{spinCount}</strong> spins · <strong>{collection.length}</strong> symbols
+          </div>
+          <button onClick={restart} style={{...S.goldBtn, marginTop: 16}}>PLAY AGAIN</button>
+        </div></div>
+      )}
+
+      <div style={{marginTop: 12, textAlign: "center"}}>
+        <span style={{color:"#222", fontSize: 9, fontFamily:"DM Mono"}}>
+          DEMO · NOT REAL MONEY · 21+ · GAMBLE RESPONSIBLY
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════
+// STYLES
+// ═════════════════════════════════════════════════════════
+const S = {
+  root: {
+    minHeight: "100vh", background: "#07070c", color: "#ddd",
+    fontFamily: "'Outfit','Noto Color Emoji',sans-serif", display: "flex", flexDirection: "column",
+    alignItems: "center", maxWidth: 480, margin: "0 auto", paddingBottom: 20, overflow: "hidden",
+  },
+  hdr: {
+    width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+    padding: "12px 14px 8px", borderBottom: "1px solid #111118",
+  },
+  hL: { display: "flex", alignItems: "center", gap: 8 },
+  hT: { fontFamily: "'Dela Gothic One'", fontSize: 12, letterSpacing: 1.5, color: "#FFD700" },
+  hS: { fontSize: 10, color: "#3a3a3a", fontFamily: "DM Mono", marginTop: 1 },
+  spinsCounter: {
+    display: "flex", flexDirection: "column", alignItems: "center",
+    background: "linear-gradient(145deg, #151520, #0f0f18)", borderRadius: 10,
+    padding: "4px 12px", border: "1px solid #1e1e2a", minWidth: 52,
+  },
+  spinsNum: {
+    fontSize: 22, fontWeight: 700, fontFamily: "'Dela Gothic One'", color: "#FFD700",
+    lineHeight: 1,
+  },
+  spinsLabel: {
+    fontSize: 7, letterSpacing: 1.5, color: "#555", fontFamily: "DM Mono", marginTop: 2,
+  },
+
+  bar: {
+    width: "100%", display: "flex", alignItems: "center", justifyContent: "space-around",
+    padding: "8px 8px", background: "#0a0a10", borderBottom: "1px solid #111118",
+  },
+  barDiv: { width: 1, height: 22, background: "#161620", margin: "0 4px" },
+  stat: { display: "flex", flexDirection: "column", alignItems: "center", flex: 1 },
+  statL: { fontSize: 8, letterSpacing: 1.5, color: "#333", fontFamily: "DM Mono" },
+  statV: { fontSize: 14, fontWeight: 700, fontFamily: "DM Mono", marginTop: 1 },
+
+  unlockBanner: {
+    width: "100%", padding: "6px 0", textAlign: "center",
+    background: "linear-gradient(90deg, #FFD70010, #FFD70025, #FFD70010)",
+    color: "#FFD700", fontSize: 11, fontFamily: "'Dela Gothic One'", letterSpacing: 2,
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+  },
+
+  // ─── REELS ───
+  reelsWrap: { width: "100%", padding: "10px 8px 4px" },
+  reelsRow: {
+    display: "grid", gap: 4, width: "100%",
+  },
+  reel: {
+    display: "flex", flexDirection: "column", gap: 2,
+    background: "linear-gradient(180deg, #0d0d14 0%, #09090f 100%)",
+    borderRadius: 10, padding: "2px 2px 2px",
+    border: "1px solid #161620",
+  },
+  reelLabel: {
+    fontSize: 8, fontFamily: "DM Mono", color: "#333", textAlign: "center",
+    padding: "2px 0 1px", letterSpacing: 1,
+  },
+  cell: {
+    height: 52, display: "flex", alignItems: "center", justifyContent: "center",
+    borderRadius: 6, border: "1px solid #1a1a28", position: "relative",
+    transition: "all 0.15s",
+  },
+  peekCell: {
+    height: 28, overflow: "hidden",
+  },
+  peekTop: {
+    transform: "perspective(120px) rotateX(-45deg) scaleY(0.7)",
+    transformOrigin: "bottom center",
+    opacity: 0.35, borderRadius: "6px 6px 2px 2px",
+  },
+  peekBot: {
+    transform: "perspective(120px) rotateX(45deg) scaleY(0.7)",
+    transformOrigin: "top center",
+    opacity: 0.35, borderRadius: "2px 2px 6px 6px",
+  },
+  scoreFloat: {
+    position: "absolute", top: -1, right: 1, fontSize: 7, fontWeight: 700,
+    fontFamily: "DM Mono", pointerEvents: "none", whiteSpace: "nowrap",
+  },
+  fuseBadge: {
+    position: "absolute", bottom: 1, right: 3, fontSize: 8, fontWeight: 700,
+    color: "#FF6B6B", fontFamily: "DM Mono",
+  },
+  growBadge: {
+    position: "absolute", bottom: 0, left: 1, fontSize: 7, fontWeight: 700,
+    color: "#6BCB77", fontFamily: "DM Mono", lineHeight: 1,
+    background: "#6BCB7720", borderRadius: 3, padding: "1px 2px", whiteSpace: "nowrap",
+  },
+
+  tooltip: {
+    width: "100%", padding: "4px 10px",
+  },
+  tooltipInner: {
+    display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+    background: "linear-gradient(145deg, #151520, #0f0f18)",
+    border: "1px solid #2a2a3e", borderRadius: 10, cursor: "pointer",
+  },
+  tooltipName: { fontSize: 13, fontWeight: 700, color: "#eee" },
+  tooltipDesc: { fontSize: 10, color: "#888", lineHeight: 1.3, marginTop: 2 },
+  tooltipStats: { fontSize: 9, color: "#FFD700", fontFamily: "DM Mono", marginTop: 3 },
+
+  evWrap: {
+    display: "flex", flexWrap: "wrap", gap: 3, padding: "2px 10px",
+    justifyContent: "center", width: "100%",
+  },
+  evBadge: {
+    fontSize: 9, padding: "2px 7px", borderRadius: 20,
+    background: "#FFD70008", border: "1px solid #FFD70018", color: "#FFD700",
+    fontFamily: "DM Mono", whiteSpace: "nowrap",
+  },
+
+  winBar: {
+    display: "flex", alignItems: "center", gap: 6, padding: "5px 14px",
+    margin: "4px 10px", borderRadius: 8,
+    background: "linear-gradient(135deg, #121a12, #0a0a10)",
+    border: "1px solid #6BCB7725",
+  },
+  winTag: { fontSize: 10, fontFamily: "'Dela Gothic One'", letterSpacing: 2, color: "#6BCB77" },
+  winAmt: { fontSize: 18, fontWeight: 700, fontFamily: "DM Mono", color: "#6BCB77" },
+
+  // ─── PANELS ───
+  panel: { width: "100%", padding: "8px 10px" },
+  panelTitle: {
+    fontSize: 10, letterSpacing: 2, color: "#FFD700", fontFamily: "'Dela Gothic One'",
+    textAlign: "center", marginBottom: 8,
+  },
+  draftRow: { display: "flex", gap: 5, justifyContent: "center" },
+  draftCard: {
+    flex: 1, maxWidth: 130, display: "flex", flexDirection: "column", alignItems: "center",
+    gap: 3, padding: "12px 6px 8px", borderRadius: 10,
+    background: "linear-gradient(145deg, #111119, #0c0c14)",
+    border: "1.5px solid #1e1e2a", cursor: "pointer", fontFamily: "'Outfit'", color: "#ddd",
+  },
+  draftName: { fontSize: 11, fontWeight: 700, color: "#eee" },
+  draftDesc: { fontSize: 8, color: "#666", lineHeight: 1.3, textAlign: "center", minHeight: 28 },
+  draftBase: { fontSize: 9, color: "#6BCB77", fontFamily: "DM Mono", fontWeight: 700 },
+
+  reelPickBtn: {
+    flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+    gap: 4, padding: "12px 6px 8px", borderRadius: 10,
+    background: "linear-gradient(145deg, #111119, #0c0c14)",
+    border: "1.5px solid #1e1e2a", cursor: "pointer", fontFamily: "'Outfit'", color: "#ddd",
+  },
+  reelPickLabel: { fontSize: 12, fontWeight: 700, fontFamily: "'Dela Gothic One'", color: "#FFD700" },
+  reelPickCount: { fontSize: 9, color: "#555", fontFamily: "DM Mono" },
+  reelPickIcons: { display: "flex", flexWrap: "wrap", gap: 2, justifyContent: "center", minHeight: 20 },
+
+  spinBtn: {
+    width: "100%", padding: "14px 0", borderRadius: 12, border: "none",
+    background: "linear-gradient(135deg, #FFD700, #FF8C00)", color: "#0a0a14",
+    fontSize: 18, fontFamily: "'Dela Gothic One'", letterSpacing: 3,
+    cursor: "pointer", boxShadow: "0 4px 20px rgba(255,215,0,.15)", transition: "all 0.2s",
+  },
+
+  ov: {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,.88)",
+    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20,
+  },
+  modal: {
+    background: "linear-gradient(145deg, #111119, #0a0a10)", border: "1px solid #1a1a28",
+    borderRadius: 20, padding: "24px 20px", textAlign: "center", maxWidth: 300, width: "100%",
+    display: "flex", flexDirection: "column", alignItems: "center",
+  },
+  mTitle: { fontFamily: "'Dela Gothic One'", fontSize: 18, letterSpacing: 2, color: "#FFD700", margin: "6px 0" },
+  mLine: { fontSize: 13, color: "#888", marginTop: 4 },
+  goldBtn: {
+    width: "100%", padding: "12px 0", borderRadius: 10, border: "none",
+    background: "linear-gradient(135deg, #FFD700, #FF8C00)", color: "#0a0a14",
+    fontSize: 14, fontFamily: "'Dela Gothic One'", letterSpacing: 1.5, cursor: "pointer",
+  },
+  cashBtn: {
+    width: "100%", padding: "10px 0", borderRadius: 10,
+    border: "1px solid #6BCB7744", background: "linear-gradient(135deg, #162016, #0f0f18)",
+    color: "#6BCB77", fontSize: 12, fontFamily: "'Dela Gothic One'", letterSpacing: 1,
+    cursor: "pointer",
+  },
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<LBaL />);
+</script>
+</body>
+</html>

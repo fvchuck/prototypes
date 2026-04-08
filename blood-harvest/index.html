@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Blood Harvest</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body,#root{width:100%;height:100%;background:#08080f;overflow:hidden;touch-action:none}</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useRef,useCallback}=React;
+
+
+const GW = 400, GH = 680, PR = 14, CHESTR = 14;
+const rand = (a, b) => Math.random() * (b - a) + a;
+const dst = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Base coin = 0.1% of bet. Denominations are multiples.
+const DENOM = {
+  bronze:  { units: 1,    r: 5,  color: "#b87333", stroke: "#8b5a2b", glow: "#b8733380", label: "" },
+  silver:  { units: 10,   r: 6,  color: "#c0c0c0", stroke: "#888888", glow: "#c0c0c080", label: "" },
+  gold:    { units: 50,   r: 7,  color: "#ffd700", stroke: "#b8960f", glow: "#ffd70080", label: "" },
+  ruby:    { units: 100,  r: 8,  color: "#ff3366", stroke: "#cc1144", glow: "#ff336680", label: "" },
+  diamond: { units: 1000, r: 10, color: "#aaeeff", stroke: "#66ccee", glow: "#aaeeffaa", label: "💎" },
+};
+const BASE_COIN = 0.001; // per unit, multiplied by bet only. flat value, no multipliers.
+
+const WEAPS = {
+  whip:  { n:"Whip",       i:"⚔️", d:18, rate:900,  rng:80,  spd:0, aoe:2.2, desc:"Arc slash" },
+  knife: { n:"Knife",      i:"🗡️", d:10, rate:420,  rng:200, spd:6, aoe:0,   desc:"Fast projectile" },
+  fire:  { n:"Fireball",   i:"🔥", d:25, rate:1400, rng:180, spd:3, aoe:40,  desc:"Slow AoE blast" },
+  garlic:{ n:"Garlic",     i:"🧄", d:7,  rate:1100, rng:55,  spd:0, aoe:6.3, desc:"Damage aura" },
+  cross: { n:"Cross",      i:"✝️", d:14, rate:1100, rng:160, spd:4, aoe:0,   desc:"Boomerang" },
+  water: { n:"Holy Water",  i:"💧", d:12, rate:2000, rng:140, spd:0, aoe:45, desc:"Ground pool" },
+};
+// VS-style per-level upgrades: each level does one specific thing
+const WUPS = {
+  whip: [
+    { desc:"Area +30%",              aoeM:.3 },
+    { desc:"+5 damage",              dmg:5 },
+    { desc:"Hits both sides",        amt:1 },
+    { desc:"Area +25%, +3 dmg",      aoeM:.25, dmg:3 },
+    { desc:"-10% cooldown",          cdr:.1 },
+    { desc:"+1 swing, +5 dmg",       amt:1, dmg:5 },
+  ],
+  knife: [
+    { desc:"+20% proj speed",        spdM:.2 },
+    { desc:"+1 projectile",          amt:1 },
+    { desc:"+3 damage",              dmg:3 },
+    { desc:"+20% speed, +2 dmg",     spdM:.2, dmg:2 },
+    { desc:"+1 projectile",          amt:1 },
+    { desc:"Pierce +1, +3 dmg",      dmg:3, pierce:1 },
+  ],
+  fire: [
+    { desc:"+8 damage",              dmg:8 },
+    { desc:"+25% blast radius",      aoeF:10 },
+    { desc:"+8 damage",              dmg:8 },
+    { desc:"+25% blast radius",      aoeF:10 },
+    { desc:"+10 dmg, -10% cd",       dmg:10, cdr:.1 },
+    { desc:"+30% blast radius",      aoeF:12 },
+  ],
+  garlic: [
+    { desc:"Area +40%",              rngM:.4 },
+    { desc:"+2 dmg, -8% cooldown",   dmg:2, cdr:.08 },
+    { desc:"Area +20%",              rngM:.2 },
+    { desc:"+2 dmg, -8% cooldown",   dmg:2, cdr:.08 },
+    { desc:"Area +20%, +2 dmg",      rngM:.2, dmg:2 },
+    { desc:"Area +20%, -8% cd",      rngM:.2, cdr:.08 },
+  ],
+  cross: [
+    { desc:"+4 damage",              dmg:4 },
+    { desc:"+20% proj speed",        spdM:.2 },
+    { desc:"+1 projectile",          amt:1 },
+    { desc:"+4 dmg, +10% speed",     dmg:4, spdM:.1 },
+    { desc:"+1 projectile",          amt:1 },
+    { desc:"+6 dmg, +15% range",     dmg:6, rngM:.15 },
+  ],
+  water: [
+    { desc:"+15% pool area",         aoeF:7 },
+    { desc:"+4 damage",              dmg:4 },
+    { desc:"+0.5s duration",         durF:500 },
+    { desc:"+20% area, +3 dmg",      aoeF:9, dmg:3 },
+    { desc:"+1s duration",           durF:1000 },
+    { desc:"+20% area, +5 dmg",      aoeF:9, dmg:5 },
+  ],
+};
+const MAX_WLVL = 6;
+function wStat(wk, lvl) {
+  const b = WEAPS[wk];
+  let d=b.d, rate=b.rate, rng=b.rng, spd=b.spd, aoe=b.aoe, amt=1, dur=2000, pierce=0;
+  const ups = WUPS[wk] || [];
+  for (let i = 0; i < lvl && i < ups.length; i++) {
+    const u = ups[i];
+    if (u.dmg) d += u.dmg;
+    if (u.cdr) rate = Math.round(rate * (1 - u.cdr));
+    if (u.rngM) rng = Math.round(rng * (1 + u.rngM));
+    if (u.aoeM) aoe *= (1 + u.aoeM);
+    if (u.aoeF) aoe += u.aoeF;
+    if (u.spdM) spd *= (1 + u.spdM);
+    if (u.amt) amt += u.amt;
+    if (u.durF) dur += u.durF;
+    if (u.pierce) pierce += u.pierce;
+  }
+  return { d, rate, rng, spd, aoe, amt, dur, pierce };
+}
+
+const UPGS = {
+  hp:     { n:"+20 Max HP", i:"❤️",  desc:"More health",          fn: p => { p.mhp += 20; p.hp = Math.min(p.hp+20, p.mhp); }},
+  speed:  { n:"+Speed",     i:"👟",  desc:"Move faster",          fn: p => { p.spd += 0.4; }},
+  armor:  { n:"+Armor",     i:"🛡️", desc:"Reduce damage",        fn: p => { p.arm += 2; }},
+  luck:   { n:"+Luck",      i:"🍀", desc:"Better drops & chests", fn: p => { p.lk += 0.12; }},
+  magnet: { n:"+Vacuum",    i:"🧲", desc:"Attract nearby items",  fn: p => { p.vacR += 28; }},
+};
+
+function dropCoins(x, y, type, wave, luck) {
+  const coins = [];
+  const mk = (denom, count) => {
+    const d = DENOM[denom];
+    for (let i = 0; i < count; i++) coins.push({ x: x + rand(-14, 14), y: y + rand(-14, 14), denom, units: d.units, life: 5000, ml: 5000, pulse: rand(0, 6.3) });
+  };
+  // Luck can upgrade denominations
+  const upgrade = (base) => {
+    if (luck > 0 && Math.random() < luck * 0.3) {
+      if (base === "bronze") return "silver";
+      if (base === "silver") return "gold";
+      if (base === "gold") return "ruby";
+    }
+    return base;
+  };
+  if (type === "boss") {
+    mk(upgrade("gold"), 1 + Math.floor(wave / 5));
+    mk(upgrade("silver"), 2 + Math.floor(rand(0, 2)));
+    mk(upgrade("bronze"), 3 + Math.floor(rand(0, 3)));
+  } else if (type === "elite") {
+    mk(upgrade("silver"), 1 + Math.floor(wave / 8));
+    mk(upgrade("bronze"), 2 + Math.floor(rand(0, 3)));
+  } else if (type === "ranged") {
+    if (wave >= 6 && Math.random() < 0.2 + luck * 0.15) mk(upgrade("gold"), 1);
+    else mk(upgrade("silver"), 1);
+    mk(upgrade("bronze"), Math.floor(rand(1, 3)));
+  } else {
+    if (wave >= 10 && Math.random() < 0.1 + luck * 0.1) mk(upgrade("silver"), 1);
+    else mk(upgrade("bronze"), Math.floor(rand(1, 3)));
+  }
+  return coins;
+}
+
+function mkEnemy(wave, forceType) {
+  const canRange = wave >= 3;
+  let type = forceType || "melee";
+  if (!forceType && canRange && Math.random() < 0.12 + wave * 0.01) type = "ranged";
+  // elite is a modifier, not a type — can be elite melee or elite ranged
+  const isElite = !forceType && type !== "boss" && Math.random() < 0.06 + wave * 0.008;
+  const baseHp = 15 + wave * 5 + rand(0, wave * 3);
+  const baseSpd = 0.6 + rand(0, 0.4) + wave * 0.03;
+  const baseR = 10 + Math.min(wave, 15) * 0.3;
+  const baseDmg = 5 + wave * 2;
+  const mult = {
+    melee:  {hp:1,   spd:1,   r:1,   dmg:1,  xp:1},
+    ranged: {hp:0.6, spd:0.8, r:0.85,dmg:0.8,xp:2},
+    boss:   {hp:10,  spd:0.45,r:2.2, dmg:4,  xp:8},
+  }[type];
+  // Elite multiplier stacks on top
+  const eMul = isElite ? {hp:3, spd:0.9, r:1.4, dmg:1.8, xp:2} : {hp:1,spd:1,r:1,dmg:1,xp:1};
+  const edge = Math.floor(Math.random() * 4), m = 30;
+  let x, y;
+  if(edge===0){x=rand(-m,GW+m);y=-m;}else if(edge===1){x=rand(-m,GW+m);y=GH+m;}
+  else if(edge===2){x=-m;y=rand(-m,GH+m);}else{x=GW+m;y=rand(-m,GH+m);}
+  const hp = baseHp * mult.hp * eMul.hp;
+  return { x, y, hp, mhp:hp, spd:baseSpd*mult.spd*eMul.spd, r:baseR*mult.r*eMul.r, dmg:baseDmg*mult.dmg*eMul.dmg,
+    type, boss:type==="boss", ranged:type==="ranged", elite:isElite, fl:0, xpv:Math.ceil(mult.xp*eMul.xp),
+    atkTimer:0, atkRate:type==="boss"?1800:type==="ranged"?2200:0,
+    prefDist:type==="ranged"?120+rand(0,40):0, dropChance:type==="boss"?1:isElite?0.8:type==="ranged"?0.40:0.30 };
+}
+
+function Game() {
+  const cvs = useRef(null), G = useRef(null), raf = useRef(0);
+  const joy = useRef({on:false,dx:0,dy:0,sx:0,sy:0}), keys = useRef(new Set());
+  const [mode, setMode] = useState("menu");
+  const [bet, setBet] = useState(1.00);
+  const [lvlUp, setLvlUp] = useState(null);
+  const [payout, setPayout] = useState(null);
+  const [hudTxt, setHudTxt] = useState("");
+  const [chestChoice, setChestChoice] = useState(null);
+
+  const init = useCallback(() => ({
+    p: { x:GW/2, y:GH/2, hp:100, mhp:100, spd:2.2, arm:0, lk:0, vacR:0, w:["whip"], wLvl:{whip:0}, wt:{}, face:1 },
+    en:[], proj:[], eProj:[], coins:[], xp:[], chests:[], parts:[], ftxt:[],
+    coinCombo: null,
+    xpAmt:0, xpNeed:5, lv:1, wave:1, wTmr:0, sTmr:0,
+    coinBank:0, betMulti:0, chestCount:0, bet, time:0, paused:false, over:false, iframes:0,
+  }), [bet]);
+
+  const play = useCallback(() => { G.current = init(); setMode("play"); setLvlUp(null); setPayout(null); setChestChoice(null); }, [init]);
+
+  const doLevelUp = useCallback(g => {
+    g.paused = true;
+    const pool = [];
+    // New weapons
+    Object.keys(WEAPS).forEach(k => { if (!g.p.w.includes(k)) pool.push({ t:"w", id:k, lbl:`${WEAPS[k].i} ${WEAPS[k].n} (NEW)`, desc:WEAPS[k].desc }); });
+    // Weapon level-ups
+    g.p.w.forEach(k => { const lv = g.p.wLvl[k]||0; if (lv < MAX_WLVL) { const upDesc = WUPS[k][lv].desc; pool.push({ t:"wup", id:k, lbl:`${WEAPS[k].i} ${WEAPS[k].n} → Lv${lv+2}`, desc:upDesc }); }});
+    // Stat upgrades
+    Object.keys(UPGS).forEach(k => pool.push({ t:"u", id:k, lbl:`${UPGS[k].i} ${UPGS[k].n}`, desc:UPGS[k].desc }));
+    for (let i = pool.length-1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+    setLvlUp(pool.slice(0, Math.min(3, pool.length)));
+  }, []);
+
+  const pickChoice = useCallback(c => {
+    const g = G.current; if (!g) return;
+    if (c.t === "w") { g.p.w.push(c.id); g.p.wLvl[c.id] = 0; }
+    else if (c.t === "wup") { g.p.wLvl[c.id] = (g.p.wLvl[c.id]||0) + 1; }
+    else UPGS[c.id].fn(g.p);
+    g.paused = false; setLvlUp(null);
+  }, []);
+
+  const cashout = useCallback(() => { const g = G.current; if (!g) return; g.over = true; setPayout({coins:g.coinBank, bonus:g.betMulti*g.bet, total:g.coinBank+g.betMulti*g.bet}); setChestChoice(null); setMode("end"); }, []);
+  const keepPlaying = useCallback(() => { const g = G.current; if (!g) return; g.paused = false; setChestChoice(null); }, []);
+  const die = useCallback(g => { g.over = true; setPayout({coins:g.coinBank, bonus:0, total:g.coinBank}); setMode("dead"); }, []);
+
+  useEffect(() => {
+    if (mode !== "play") return;
+    const c = cvs.current; if (!c) return;
+    const ctx = c.getContext("2d");
+    let prev = performance.now();
+
+    const loop = (now) => {
+      const g = G.current; if (!g || g.over) return;
+      const dt = Math.min(now - prev, 50); prev = now;
+
+      if (!g.paused) {
+        g.time += dt; g.wTmr += dt; g.sTmr += dt;
+        if (g.iframes > 0) g.iframes -= dt;
+        if (g.wTmr > 12000) { g.wave++; g.wTmr = 0; g.en.push(mkEnemy(g.wave, "boss")); g.ftxt.push({x:GW/2,y:80,t:"👑 BOSS!",c:"#ff8800",life:2000}); }
+        const sr = Math.max(300, 1200 - g.wave * 60);
+        if (g.sTmr > sr) { g.en.push(mkEnemy(g.wave)); g.sTmr = 0; }
+
+        // Swarms
+        if (Math.random() < 0.0015 + g.wave * 0.0003) {
+          const count = Math.floor(rand(6, 14 + g.wave * 1.5));
+          if (Math.random() < 0.35) {
+            const ringR = rand(60, 280);
+            for (let i = 0; i < count; i++) { const a = (Math.PI*2*i)/count+rand(-0.2,0.2), e = mkEnemy(g.wave,"melee"); e.x=g.p.x+Math.cos(a)*ringR; e.y=g.p.y+Math.sin(a)*ringR; e.spd*=1.2; g.en.push(e); }
+            g.ftxt.push({x:GW/2,y:60,t:ringR<120?"⚠ AMBUSH!":"⚠ SURROUNDED!",c:ringR<120?"#ff0000":"#ff2222",life:1500});
+          } else {
+            const cx=rand(30,GW-30),cy=rand(30,GH-30),edge=Math.floor(Math.random()*4);
+            for(let i=0;i<count;i++){const e=mkEnemy(g.wave,"melee");if(edge===0){e.x=rand(cx-60,cx+60);e.y=-rand(10,50);}else if(edge===1){e.x=rand(cx-60,cx+60);e.y=GH+rand(10,50);}else if(edge===2){e.x=-rand(10,50);e.y=rand(cy-60,cy+60);}else{e.x=GW+rand(10,50);e.y=rand(cy-60,cy+60);}e.spd*=1.15;g.en.push(e);}
+            g.ftxt.push({x:GW/2,y:60,t:"⚠ SWARM!",c:"#ff4444",life:1500});
+          }
+        }
+
+        // Chests — only drop from bosses (see kill section)
+
+        // Move player
+        const j = joy.current; let jdx=j.dx, jdy=j.dy, jon=j.on;
+        const k = keys.current; let kdx=0, kdy=0;
+        if(k.has("w")||k.has("arrowup"))kdy=-1; if(k.has("s")||k.has("arrowdown"))kdy=1;
+        if(k.has("a")||k.has("arrowleft"))kdx=-1; if(k.has("d")||k.has("arrowright"))kdx=1;
+        if(kdx||kdy){jdx=kdx;jdy=kdy;jon=true;}
+        if(jon){const mag=Math.min(1,Math.hypot(jdx,jdy));if(mag>0.1){const h=Math.hypot(jdx,jdy)||1;g.p.x=cl(g.p.x+(jdx/h)*g.p.spd*mag*(dt/16),PR,GW-PR);g.p.y=cl(g.p.y+(jdy/h)*g.p.spd*mag*(dt/16),PR,GH-PR);g.p.face=jdx>0?1:jdx<0?-1:g.p.face;}}
+
+        // Enemy AI
+        for(let i=g.en.length-1;i>=0;i--){const e=g.en[i];const dx=g.p.x-e.x,dy=g.p.y-e.y,d=Math.hypot(dx,dy)||1;if(e.fl>0)e.fl-=dt;
+          if(e.ranged){if(d<e.prefDist-15){e.x-=(dx/d)*e.spd*1.3*(dt/16);e.y-=(dy/d)*e.spd*1.3*(dt/16);}else if(d>e.prefDist+30){e.x+=(dx/d)*e.spd*(dt/16);e.y+=(dy/d)*e.spd*(dt/16);}else{const px=-dy/d,py=dx/d,sd=(i%2===0)?1:-1;e.x+=px*e.spd*0.5*sd*(dt/16);e.y+=py*e.spd*0.5*sd*(dt/16);}e.x=cl(e.x,-40,GW+40);e.y=cl(e.y,-40,GH+40);e.atkTimer+=dt;if(e.atkTimer>=e.atkRate&&d<250){e.atkTimer=0;g.eProj.push({x:e.x,y:e.y,vx:(dx/d)*2.5,vy:(dy/d)*2.5,dmg:Math.ceil(e.dmg*0.6),r:4,life:1500,type:"ranged"});}}
+          else if(e.boss){e.x+=(dx/d)*e.spd*(dt/16);e.y+=(dy/d)*e.spd*(dt/16);e.atkTimer+=dt;if(e.atkTimer>=e.atkRate){e.atkTimer=0;const pc=6+Math.min(g.wave,10);for(let j=0;j<pc;j++){const a=(Math.PI*2*j)/pc;g.eProj.push({x:e.x,y:e.y,vx:Math.cos(a)*2.2,vy:Math.sin(a)*2.2,dmg:Math.ceil(e.dmg*0.4),r:4,life:1800,type:"boss"});}g.parts.push({x:e.x,y:e.y,r:30,tp:"aura",life:300,ml:300});}}
+          else{e.x+=(dx/d)*e.spd*(dt/16);e.y+=(dy/d)*e.spd*(dt/16);}
+          if(!e.ranged&&d<PR+e.r&&g.iframes<=0){const dmg=Math.max(1,e.dmg-g.p.arm);g.p.hp-=dmg;g.iframes=500;g.ftxt.push({x:g.p.x,y:g.p.y-20,t:`-${dmg}`,c:"#f44",life:800});}}
+
+        // Enemy projectiles
+        const nep=[];for(const ep of g.eProj){ep.life-=dt;if(ep.life<=0)continue;ep.x+=ep.vx*(dt/16);ep.y+=ep.vy*(dt/16);if(ep.x<-20||ep.x>GW+20||ep.y<-20||ep.y>GH+20)continue;if(dst(g.p,ep)<PR+ep.r&&g.iframes<=0){const dmg=Math.max(1,ep.dmg-g.p.arm);g.p.hp-=dmg;g.iframes=400;g.ftxt.push({x:g.p.x,y:g.p.y-20,t:`-${dmg}`,c:"#f66",life:800});continue;}nep.push(ep);}g.eProj=nep;
+
+        // Player weapons (with level scaling)
+        g.p.w.forEach(wk => {
+          const base = WEAPS[wk]; if(!base) return;
+          const lv = g.p.wLvl[wk]||0;
+          const w = { ...base, ...wStat(wk, lv) };
+          if(!g.p.wt[wk])g.p.wt[wk]=0; g.p.wt[wk]+=dt;
+          if(g.p.wt[wk]<w.rate) return; g.p.wt[wk]=0;
+          let near=null, nearD=Infinity;
+          g.en.forEach(e=>{const d=dst(g.p,e);if(d<w.rng&&d<nearD){near=e;nearD=d;}});
+          if(wk==="garlic"){g.en.forEach(e=>{if(dst(g.p,e)<w.rng){e.hp-=w.d;e.fl=100;}});g.parts.push({x:g.p.x,y:g.p.y,r:w.rng,tp:"aura",life:300,ml:300});}
+          else if(wk==="whip"){const a=near?Math.atan2(near.y-g.p.y,near.x-g.p.x):(g.p.face>0?0:Math.PI);g.proj.push({x:g.p.x,y:g.p.y,a,tp:"whip",d:w.d,life:200,ml:200,rng:w.rng,aoe:w.aoe,hitIds:[]});}
+          else if(wk==="water"&&near){g.proj.push({x:near.x,y:near.y,tp:"pool",d:w.d,life:2000,ml:2000,r:w.aoe,tick:0});}
+          else if(near){const a=Math.atan2(near.y-g.p.y,near.x-g.p.x);const pr={x:g.p.x,y:g.p.y,vx:Math.cos(a)*w.spd,vy:Math.sin(a)*w.spd,tp:wk,d:w.d,life:800,ml:800,r:5,aoeR:w.aoe||0};if(wk==="cross"){pr.ox=g.p.x;pr.oy=g.p.y;pr.trv=0;pr.maxD=w.rng;pr.ret=false;}g.proj.push(pr);}
+        });
+
+        // Player projectiles
+        const np=[];for(const p of g.proj){p.life-=dt;if(p.life<=0)continue;
+          if(p.tp==="whip"){for(const e of g.en){if(p.hitIds.indexOf(e)>=0)continue;const d=dst(g.p,e);if(d<p.rng){const ae=Math.atan2(e.y-g.p.y,e.x-g.p.x);let diff=ae-p.a;while(diff>Math.PI)diff-=Math.PI*2;while(diff<-Math.PI)diff+=Math.PI*2;if(Math.abs(diff)<p.aoe/2){e.hp-=p.d;e.fl=100;p.hitIds.push(e);}}}np.push(p);continue;}
+          if(p.tp==="pool"){p.tick+=dt;if(p.tick>400){p.tick=0;g.en.forEach(e=>{if(dst(p,e)<p.r+e.r){e.hp-=p.d;e.fl=100;}});}np.push(p);continue;}
+          if(p.tp==="cross"){const dir=p.ret?-1:1;p.x+=p.vx*(dt/16)*dir;p.y+=p.vy*(dt/16)*dir;p.trv+=Math.hypot(p.vx,p.vy)*(dt/16);if(!p.ret&&p.trv>=p.maxD){p.ret=true;p.trv=0;}g.en.forEach(e=>{if(dst(p,e)<p.r+e.r){e.hp-=p.d*0.3;e.fl=50;}});np.push(p);continue;}
+          p.x+=p.vx*(dt/16);p.y+=p.vy*(dt/16);if(p.x<-20||p.x>GW+20||p.y<-20||p.y>GH+20)continue;
+          let hit=false;for(const e of g.en){if(dst(p,e)<p.r+e.r){e.hp-=p.d;e.fl=100;if(p.aoeR>0){g.en.forEach(e2=>{if(e2!==e&&dst(p,e2)<p.aoeR){e2.hp-=p.d*0.5;e2.fl=100;}});g.parts.push({x:p.x,y:p.y,r:p.aoeR,tp:"boom",life:300,ml:300});}hit=true;break;}}if(!hit)np.push(p);}g.proj=np;
+
+        // Kill enemies — drop denomination coins, bosses drop chests
+        const ae=[];for(const e of g.en){if(e.hp<=0){
+          if(Math.random()<(e.dropChance+g.p.lk*0.08)||e.boss){const dc=dropCoins(e.x,e.y,e.type,g.wave,g.p.lk);dc.forEach(c=>g.coins.push(c));}
+          if(e.boss){const n=g.chestCount+1;const m=+(0.2+Math.pow(n,1.6)*0.15+g.p.lk*0.2).toFixed(2);g.chests.push({x:e.x,y:e.y,m,life:12000,pulse:0});}
+          for(let i=0;i<e.xpv;i++)g.xp.push({x:e.x+rand(-15,15),y:e.y+rand(-15,15),life:6000,ml:6000});
+          for(let i=0;i<3;i++)g.parts.push({x:e.x,y:e.y,vx:rand(-2,2),vy:rand(-2,2),life:400,ml:400,tp:"poof",color:e.boss?"#ff0":e.elite?"#f80":e.ranged?"#4af":"#a44"});
+        } else ae.push(e);}g.en=ae;
+
+        // Collect coins — flat value, vacuum pull if player has vacR
+        const ac=[];for(const c of g.coins){c.life-=dt;c.pulse+=dt*0.005;if(c.life<=0)continue;
+          const cd=dst(g.p,c);
+          if(cd<22){
+            const val = c.units * BASE_COIN * g.bet;
+            g.coinBank += val;
+            if(g.coinCombo&&g.coinCombo.life>0){g.coinCombo.val+=val;g.coinCombo.life=Math.min(g.coinCombo.ml,g.coinCombo.life+300);g.coinCombo.x=g.p.x;g.coinCombo.y=g.p.y-30;g.coinCombo.hits++;g.coinCombo.units+=c.units;}
+            else{g.coinCombo={x:g.p.x,y:g.p.y-30,val,life:1200,ml:1200,hits:1,units:c.units};}
+          } else {
+            if(g.p.vacR>0&&cd<g.p.vacR){const pull=3*(1-cd/g.p.vacR);c.x+=(g.p.x-c.x)/cd*pull*(dt/16);c.y+=(g.p.y-c.y)/cd*pull*(dt/16);}
+            ac.push(c);
+          }}g.coins=ac;
+        if(g.coinCombo&&g.coinCombo.life>0){g.coinCombo.life-=dt;g.coinCombo.y-=0.3;}
+
+        // Collect XP — with vacuum pull
+        const ax=[];for(const o of g.xp){o.life-=dt;if(o.life<=0)continue;const od=dst(g.p,o);if(od<22){g.xpAmt++;if(g.xpAmt>=g.xpNeed){g.xpAmt=0;g.lv++;g.xpNeed=Math.floor(g.xpNeed*1.4);doLevelUp(g);}}else{if(g.p.vacR>0&&od<g.p.vacR){const pull=3*(1-od/g.p.vacR);o.x+=(g.p.x-o.x)/od*pull*(dt/16);o.y+=(g.p.y-o.y)/od*pull*(dt/16);}ax.push(o);}}g.xp=ax;
+
+        // Collect chests — adds to bet multiplier (lost on death)
+        const ach=[];for(const ch of g.chests){ch.life-=dt;ch.pulse+=dt*0.004;if(ch.life<=0)continue;if(dst(g.p,ch)<30){
+          g.betMulti+=ch.m;g.chestCount++;g.paused=true;
+          const nextN=g.chestCount+1;const nextChestVal=+(0.2+Math.pow(nextN,1.6)*0.15+g.p.lk*0.2).toFixed(2);
+          setChestChoice({chestMulti:ch.m,totalMulti:+g.betMulti.toFixed(2),betVal:g.betMulti*g.bet,coins:g.coinBank,totalPayout:g.coinBank+g.betMulti*g.bet,nextMulti:nextChestVal,nextVal:nextChestVal*g.bet,wave:g.wave,chestNum:g.chestCount});
+        }else ach.push(ch);}g.chests=ach;
+
+        g.parts=g.parts.filter(p=>{p.life-=dt;if(p.vx){p.x+=p.vx;p.y+=p.vy;}return p.life>0;});
+        g.ftxt=g.ftxt.filter(f=>{f.life-=dt;f.y-=0.5;return f.life>0;});
+        if(g.p.hp<=0){die(g);return;}
+      }
+
+      // ===== RENDER =====
+      ctx.fillStyle="#0a0a12";ctx.fillRect(0,0,GW,GH);
+      ctx.strokeStyle="rgba(35,35,65,0.35)";ctx.lineWidth=1;
+      for(let x=0;x<GW;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,GH);ctx.stroke();}
+      for(let y=0;y<GH;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(GW,y);ctx.stroke();}
+
+      // Pools
+      g.proj.filter(p=>p.tp==="pool").forEach(p=>{const a=p.life/p.ml;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=`rgba(80,180,255,${a*0.3})`;ctx.fill();ctx.strokeStyle=`rgba(120,200,255,${a*0.6})`;ctx.lineWidth=2;ctx.stroke();});
+
+      // Particles
+      g.parts.forEach(p=>{const a=p.life/p.ml;if(p.tp==="aura"){ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.strokeStyle=`rgba(180,255,180,${a*0.5})`;ctx.lineWidth=3;ctx.stroke();}else if(p.tp==="boom"){ctx.beginPath();ctx.arc(p.x,p.y,p.r*(1-a*0.5),0,Math.PI*2);ctx.fillStyle=`rgba(255,140,40,${a*0.4})`;ctx.fill();}else{ctx.beginPath();ctx.arc(p.x,p.y,3*a,0,Math.PI*2);ctx.fillStyle=p.color||"#a44";ctx.fill();}});
+
+      // Chests
+      g.chests.forEach(ch=>{const glow=0.5+Math.sin(ch.pulse)*0.3,fa=ch.life<2000?ch.life/2000:1;ctx.save();ctx.globalAlpha=fa;ctx.shadowColor=ch.m>=5?"#f4f":ch.m>=3?"#fa0":"#48f";ctx.shadowBlur=15*glow;ctx.fillStyle=ch.m>=5?"#c3c":ch.m>=3?"#c80":"#38c";ctx.fillRect(ch.x-CHESTR,ch.y-CHESTR*0.7,CHESTR*2,CHESTR*1.4);ctx.fillStyle="#ffd700";ctx.fillRect(ch.x-3,ch.y-6,6,12);ctx.fillRect(ch.x-6,ch.y-3,12,6);ctx.shadowBlur=0;ctx.font="bold 10px monospace";ctx.textAlign="center";ctx.fillStyle="#fff";ctx.fillText("$"+ch.m,ch.x,ch.y-CHESTR-4);ctx.restore();});
+
+      // COINS — denomination visuals
+      g.coins.forEach(c=>{
+        const d=DENOM[c.denom], glow=0.6+Math.sin(c.pulse)*0.4, fa=c.life<2000?c.life/2000:1;
+        if(c.life<1500&&(c.life/120|0)%2===0)return;
+        ctx.save();ctx.globalAlpha=fa;ctx.shadowColor=d.glow;ctx.shadowBlur=d.r*1.2*glow;
+        ctx.beginPath();ctx.arc(c.x,c.y,d.r,0,Math.PI*2);ctx.fillStyle=d.color;ctx.fill();
+        ctx.strokeStyle=d.stroke;ctx.lineWidth=1;ctx.stroke();
+        if(c.denom==="diamond"){ctx.fillStyle="#fff";ctx.font=`bold ${d.r}px serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("💎",c.x,c.y);}
+        else if(c.denom==="ruby"||c.denom==="gold"){ctx.fillStyle="rgba(255,255,255,0.4)";ctx.font=`bold ${d.r-1}px monospace`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("$",c.x,c.y);}
+        ctx.restore();
+      });
+
+      // XP orbs
+      g.xp.forEach(o=>{const fa=o.life<2000?o.life/2000:1;if(o.life<1500&&(o.life/120|0)%2===0)return;ctx.save();ctx.globalAlpha=fa;ctx.shadowColor="#48f";ctx.shadowBlur=6;ctx.beginPath();ctx.arc(o.x,o.y,5,0,Math.PI*2);ctx.fillStyle="#48f";ctx.fill();ctx.restore();});
+
+      // Enemies
+      g.en.forEach(e=>{ctx.save();if(e.fl>0){ctx.shadowColor="#fff";ctx.shadowBlur=12;}
+        if(e.elite&&!e.fl){ctx.shadowColor="#f80";ctx.shadowBlur=8;}
+        if(e.ranged){ctx.translate(e.x,e.y);ctx.rotate(Math.PI/4);const s=e.r*0.75;ctx.fillStyle=e.fl>0?"#fff":e.elite?"#664422":"#335577";ctx.fillRect(-s,-s,s*2,s*2);ctx.strokeStyle=e.elite?"#f80":"#4af";ctx.lineWidth=e.elite?2.5:1.5;ctx.strokeRect(-s,-s,s*2,s*2);ctx.rotate(-Math.PI/4);ctx.fillStyle=e.elite?"#f80":"#4af";ctx.beginPath();ctx.arc(-3,-3,2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(3,-3,2,0,Math.PI*2);ctx.fill();ctx.translate(-e.x,-e.y);}
+        else if(!e.boss&&!e.ranged){ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fillStyle=e.fl>0?"#fff":e.elite?"#664422":"#535";ctx.fill();if(e.elite){ctx.strokeStyle="#f80";ctx.lineWidth=2;ctx.stroke();}ctx.fillStyle=e.elite?"#f80":"#f44";const eo=e.r*0.3;ctx.beginPath();ctx.arc(e.x-eo,e.y-eo,e.elite?3:2.5,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(e.x+eo,e.y-eo,e.elite?3:2.5,0,Math.PI*2);ctx.fill();}
+        else if(e.boss){ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fillStyle=e.fl>0?"#fff":"#8b0000";ctx.fill();ctx.strokeStyle="#f44";ctx.lineWidth=3;ctx.stroke();ctx.fillStyle="#ffd700";ctx.beginPath();ctx.moveTo(e.x-e.r*0.5,e.y-e.r*0.8);ctx.lineTo(e.x-e.r*0.3,e.y-e.r*1.2);ctx.lineTo(e.x,e.y-e.r*0.9);ctx.lineTo(e.x+e.r*0.3,e.y-e.r*1.2);ctx.lineTo(e.x+e.r*0.5,e.y-e.r*0.8);ctx.fill();ctx.fillStyle="#ff0";const eo=e.r*0.3;ctx.beginPath();ctx.arc(e.x-eo,e.y-eo,3.5,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(e.x+eo,e.y-eo,3.5,0,Math.PI*2);ctx.fill();}
+        if(e.hp<e.mhp){const bw=e.r*2;ctx.fillStyle="#300";ctx.fillRect(e.x-bw/2,e.y-e.r-8,bw,3);ctx.fillStyle=e.boss?"#f80":e.elite?"#fa0":e.ranged?"#4af":"#f44";ctx.fillRect(e.x-bw/2,e.y-e.r-8,bw*(e.hp/e.mhp),3);}ctx.restore();});
+
+      // Enemy projectiles
+      g.eProj.forEach(ep=>{ctx.save();ctx.shadowColor=ep.type==="boss"?"#f44":"#4af";ctx.shadowBlur=6;ctx.beginPath();ctx.arc(ep.x,ep.y,ep.r,0,Math.PI*2);ctx.fillStyle=ep.type==="boss"?"#ff4444":"#44aaff";ctx.fill();ctx.restore();});
+
+      // Player projectiles
+      g.proj.forEach(p=>{if(p.tp==="pool")return;ctx.save();if(p.tp==="whip"){const a=p.life/p.ml;ctx.strokeStyle=`rgba(200,200,255,${a})`;ctx.lineWidth=4;ctx.beginPath();ctx.arc(g.p.x,g.p.y,p.rng*(1-a*0.3),p.a-p.aoe/2,p.a+p.aoe/2);ctx.stroke();}else if(p.tp==="cross"){ctx.translate(p.x,p.y);ctx.rotate(p.trv*0.15);ctx.fillStyle="#ddd";ctx.fillRect(-2,-8,4,16);ctx.fillRect(-6,-2,12,4);}else if(p.tp==="fire"){ctx.shadowColor="#f40";ctx.shadowBlur=10;ctx.beginPath();ctx.arc(p.x,p.y,6,0,Math.PI*2);ctx.fillStyle="#f62";ctx.fill();}else{ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle="#ddf";ctx.fill();}ctx.restore();});
+
+      // Player
+      ctx.save();if(g.iframes>0&&(g.time/80|0)%2===0)ctx.globalAlpha=0.4;ctx.shadowColor="#88f";ctx.shadowBlur=8;ctx.beginPath();ctx.arc(g.p.x,g.p.y,PR,0,Math.PI*2);ctx.fillStyle="#334";ctx.fill();ctx.strokeStyle="#88f";ctx.lineWidth=2;ctx.stroke();const fx=g.p.face;ctx.fillStyle="#aaf";ctx.beginPath();ctx.arc(g.p.x+4*fx,g.p.y-3,2.5,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(g.p.x-2*fx,g.p.y-3,2.5,0,Math.PI*2);ctx.fill();ctx.restore();
+
+      // Coin combo
+      if(g.coinCombo&&g.coinCombo.life>0){const cc=g.coinCombo,alpha=Math.min(1,cc.life/300);const scale=Math.min(3,1+cc.hits*0.10+cc.units*0.003);const fs=Math.floor(14*scale);ctx.save();ctx.globalAlpha=alpha;ctx.font=`bold ${fs}px monospace`;ctx.textAlign="center";ctx.fillStyle="#ffd700";ctx.shadowColor="#ffd700";ctx.shadowBlur=fs*0.4;ctx.fillText(`+$${cc.val.toFixed(cc.val<0.1?3:2)}`,cc.x,cc.y);if(cc.hits>2){ctx.font=`bold ${Math.floor(fs*0.45)}px monospace`;ctx.fillStyle="#ffa";ctx.fillText(`${cc.hits}x combo`,cc.x,cc.y+fs*0.55);}ctx.restore();}
+
+      // Floating text
+      g.ftxt.forEach(f=>{ctx.save();ctx.globalAlpha=Math.min(1,f.life/300);ctx.font="bold 13px monospace";ctx.textAlign="center";ctx.fillStyle=f.c;ctx.fillText(f.t,f.x,f.y);ctx.restore();});
+      if(g.iframes>300){ctx.fillStyle="rgba(255,0,0,0.12)";ctx.fillRect(0,0,GW,GH);}
+
+      // HUD
+      ctx.fillStyle="rgba(0,0,0,0.6)";ctx.fillRect(10,10,130,14);ctx.fillStyle=g.p.hp/g.p.mhp>0.3?"#4b4":"#d33";ctx.fillRect(10,10,130*(g.p.hp/g.p.mhp),14);ctx.strokeStyle="#666";ctx.lineWidth=1;ctx.strokeRect(10,10,130,14);ctx.fillStyle="#fff";ctx.font="bold 10px monospace";ctx.textAlign="center";ctx.fillText(`${Math.ceil(g.p.hp)}/${g.p.mhp}`,75,21);
+      ctx.fillStyle="rgba(0,0,0,0.6)";ctx.fillRect(10,28,130,8);ctx.fillStyle="#48f";ctx.fillRect(10,28,130*(g.xpAmt/g.xpNeed),8);ctx.strokeStyle="#446";ctx.strokeRect(10,28,130,8);ctx.font="8px monospace";ctx.fillStyle="#aaf";ctx.textAlign="left";ctx.fillText(`Lv${g.lv}`,12,35);
+
+      ctx.textAlign="right";ctx.font="bold 12px monospace";
+      ctx.fillStyle="#ffd700";ctx.fillText("$"+g.coinBank.toFixed(2),GW-10,20);
+      ctx.font="8px monospace";ctx.fillStyle="#aa8";ctx.fillText("COINS (KEPT)",GW-10,29);
+      if(g.betMulti>0){ctx.font="bold 12px monospace";ctx.fillStyle="#f4f";ctx.fillText(g.betMulti+"x = $"+(g.betMulti*g.bet).toFixed(2),GW-10,42);ctx.font="8px monospace";ctx.fillStyle="#a6a";ctx.fillText("BONUS (AT RISK)",GW-10,51);}
+      ctx.textAlign="center";ctx.font="bold 10px monospace";ctx.fillStyle="#888";ctx.fillText("WAVE "+g.wave,GW/2,22);
+
+      // Weapon bar with levels
+      ctx.textAlign="left";
+      g.p.w.forEach((w,i)=>{const inf=WEAPS[w];if(!inf)return;const lv=g.p.wLvl[w]||0;const bx=10+i*32;
+        ctx.font="14px serif";ctx.fillText(inf.i,bx,GH-12);
+        if(lv>0){ctx.font="bold 8px monospace";ctx.fillStyle="#ffd700";ctx.fillText(`${lv+1}`,bx+16,GH-14);}
+      });
+
+      setHudTxt(g.coinBank.toFixed(2));
+      raf.current=requestAnimationFrame(loop);
+    };
+    raf.current=requestAnimationFrame(loop);
+    return()=>cancelAnimationFrame(raf.current);
+  },[mode,doLevelUp,die]);
+
+  // Input
+  useEffect(()=>{if(mode!=="play")return;const c=cvs.current;if(!c)return;
+    const pos=e=>{const r=c.getBoundingClientRect(),t=e.touches?e.touches[0]:e;return{x:(t.clientX-r.left)*(GW/r.width),y:(t.clientY-r.top)*(GH/r.height)};};
+    const onDown=e=>{e.preventDefault();const p=pos(e);joy.current={on:true,dx:0,dy:0,sx:p.x,sy:p.y};};
+    const onMove=e=>{e.preventDefault();if(!joy.current.on)return;const p=pos(e),mx=50;joy.current.dx=cl((p.x-joy.current.sx)/mx,-1,1);joy.current.dy=cl((p.y-joy.current.sy)/mx,-1,1);};
+    const onUp=e=>{e.preventDefault();joy.current.on=false;joy.current.dx=0;joy.current.dy=0;};
+    c.addEventListener("touchstart",onDown,{passive:false});c.addEventListener("touchmove",onMove,{passive:false});c.addEventListener("touchend",onUp,{passive:false});
+    c.addEventListener("mousedown",onDown);window.addEventListener("mousemove",onMove);window.addEventListener("mouseup",onUp);
+    const kd=e=>keys.current.add(e.key.toLowerCase()),ku=e=>keys.current.delete(e.key.toLowerCase());
+    window.addEventListener("keydown",kd);window.addEventListener("keyup",ku);
+    return()=>{c.removeEventListener("touchstart",onDown);c.removeEventListener("touchmove",onMove);c.removeEventListener("touchend",onUp);c.removeEventListener("mousedown",onDown);window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);window.removeEventListener("keydown",kd);window.removeEventListener("keyup",ku);};
+  },[mode]);
+
+  const font="'Courier New',monospace";
+  const wrap={width:"100%",maxWidth:420,margin:"0 auto",fontFamily:font,background:"#08080f",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#ccc",position:"relative",overflow:"hidden",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"};
+
+  const bets = [0.50, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000];
+  const betBtn = (v) => ({
+    flex:"1", minWidth:52, padding:"10px 0", border:bet===v?"2px solid #ffd700":"1px solid #ffd70033",
+    background:bet===v?"rgba(255,215,0,0.15)":"rgba(255,215,0,0.04)", color:bet===v?"#ffd700":"#aa9944",
+    fontSize:v>=100?11:v>=10?13:15, fontWeight:700, borderRadius:8, cursor:"pointer", textAlign:"center",
+    boxShadow:bet===v?"0 0 12px #ffd70030":"none", transition:"all 0.1s",
+  });
+
+  if(mode==="menu")return(
+    <div style={wrap}><div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20,gap:12}}>
+      <div style={{fontSize:11,color:"#776",textTransform:"uppercase",letterSpacing:4}}>Fresh Vintage</div>
+      <div style={{fontSize:28,fontWeight:900,color:"#f35",textShadow:"0 0 20px #f3558a,0 0 40px #f35530",letterSpacing:2,textAlign:"center",lineHeight:1.1}}>BLOOD<br/>HARVEST</div>
+      <div style={{fontSize:36}}>🧛</div>
+      <div style={{width:"100%",maxWidth:300}}>
+        <div style={{fontSize:10,color:"#776",textTransform:"uppercase",letterSpacing:3,marginBottom:6,textAlign:"center"}}>Select Bet</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center"}}>
+          {bets.map(v=><button key={v} onClick={()=>setBet(v)} style={betBtn(v)}>${v<1?v.toFixed(2):v}</button>)}
+        </div>
+        <div style={{textAlign:"center",marginTop:10}}>
+          <div style={{fontSize:11,color:"#776",marginBottom:4}}>or adjust</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+            <button onClick={()=>setBet(b=>Math.max(0.50,+(b-0.50).toFixed(2)))} style={{width:40,height:40,border:"1px solid #ffd70044",background:"rgba(255,215,0,0.06)",color:"#ffd700",fontSize:20,fontWeight:700,borderRadius:8,cursor:"pointer"}}>−</button>
+            <div style={{fontSize:28,fontWeight:900,color:"#ffd700",minWidth:90,textAlign:"center",textShadow:"0 0 10px #ffd70040"}}>${bet.toFixed(2)}</div>
+            <button onClick={()=>setBet(b=>Math.min(1000,+(b+0.50).toFixed(2)))} style={{width:40,height:40,border:"1px solid #ffd70044",background:"rgba(255,215,0,0.06)",color:"#ffd700",fontSize:20,fontWeight:700,borderRadius:8,cursor:"pointer"}}>+</button>
+          </div>
+        </div>
+      </div>
+      <button onClick={play} style={{width:"100%",maxWidth:300,padding:"16px 0",background:"linear-gradient(135deg,#c24,#813)",border:"2px solid #f35",borderRadius:10,color:"#fff",fontSize:18,fontWeight:900,cursor:"pointer",textTransform:"uppercase",letterSpacing:3,boxShadow:"0 0 30px #f3554a",marginTop:4}}>SPIN TO SLAY</button>
+      <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid #333",borderRadius:8,padding:"10px 14px",fontSize:11,color:"#777",lineHeight:1.7,textAlign:"left",maxWidth:300}}>
+        <strong style={{color:"#aaa"}}>How it works:</strong><br/>
+        Slay monsters and collect coins to keep. Boss chests multiply your bet — cash out or push for bigger rewards. Die and you lose the bonus.
+      </div>
+    </div></div>
+  );
+
+  if(mode==="end"||mode==="dead"){const won=mode==="end";const p=payout||{coins:0,bonus:0,total:0};return(
+    <div style={wrap}><div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,gap:10,textAlign:"center"}}>
+      <div style={{fontSize:26,fontWeight:900,color:won?"#4d6":"#f35"}}>{won?"CASHED OUT":"☠️ SLAIN ☠️"}</div>
+      <div style={{fontSize:13,color:"#888"}}>Wave {G.current?.wave||1} · Level {G.current?.lv||1}</div>
+      <div style={{width:"100%",maxWidth:260,marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:"#ffd700"}}>Coins collected</span><span style={{color:"#ffd700",fontWeight:700}}>${p.coins.toFixed(2)}</span></div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:won?"#f4f":"#666"}}>{won?"Bet bonus":"Bet bonus (lost)"}</span><span style={{color:won?"#f4f":"#666",fontWeight:700,textDecoration:won?"none":"line-through"}}>${won?p.bonus.toFixed(2):(G.current?.betMulti*bet||0).toFixed(2)}</span></div>
+        <div style={{borderTop:"1px solid #444",paddingTop:8,display:"flex",justifyContent:"space-between",fontSize:15}}><span style={{color:"#aaa"}}>Total payout</span><span style={{color:"#ffd700",fontWeight:900}}>${p.total.toFixed(2)}</span></div>
+      </div>
+      <div style={{fontSize:13,color:p.total>=bet?"#4d6":"#f44",marginTop:4}}>{p.total>=bet?`+$${(p.total-bet).toFixed(2)} profit`:`-$${(bet-p.total).toFixed(2)} loss`}</div>
+      {!won&&<div style={{fontSize:11,color:"#f66",marginTop:2}}>Bet bonus is forfeited on death</div>}
+      <button onClick={()=>setMode("menu")} style={{width:"100%",maxWidth:260,padding:"14px 0",background:"linear-gradient(135deg,#c24,#813)",border:"2px solid #f35",borderRadius:10,color:"#fff",fontSize:18,fontWeight:900,cursor:"pointer",textTransform:"uppercase",letterSpacing:3,marginTop:16}}>PLAY AGAIN</button>
+    </div></div>
+  );}
+
+  return(
+    <div style={wrap}>
+      <canvas ref={cvs} width={GW} height={GH} style={{width:"100%",aspectRatio:`${GW}/${GH}`,display:"block",touchAction:"none"}}/>
+      {chestChoice&&(<div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.88)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,zIndex:20,padding:24}}>
+        <div style={{fontSize:14,color:"#f4f",textTransform:"uppercase",letterSpacing:3}}>Boss Chest #{chestChoice.chestNum}</div>
+        <div style={{fontSize:36,fontWeight:900,color:"#f4f",textShadow:"0 0 20px #f4f60"}}>+{chestChoice.chestMulti}x</div>
+        <div style={{fontSize:12,color:"#aaa"}}>Bet multiplier now <span style={{color:"#f4f",fontWeight:700}}>{chestChoice.totalMulti}x</span> = <span style={{color:"#f4f",fontWeight:700}}>${chestChoice.betVal.toFixed(2)}</span></div>
+        <div style={{width:"100%",maxWidth:260,marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}><span style={{color:"#ffd700"}}>Coins (kept)</span><span style={{color:"#ffd700"}}>${chestChoice.coins.toFixed(2)}</span></div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}><span style={{color:"#f4f"}}>Bet bonus (at risk)</span><span style={{color:"#f4f"}}>${chestChoice.betVal.toFixed(2)}</span></div>
+          <div style={{borderTop:"1px solid #444",paddingTop:4,display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700}}><span style={{color:"#aaa"}}>Cash out total</span><span style={{color:"#ffd700"}}>${chestChoice.totalPayout.toFixed(2)}</span></div>
+        </div>
+        <button onClick={cashout} style={{width:"100%",maxWidth:280,padding:"16px 0",background:"linear-gradient(135deg,#283,#152)",border:"2px solid #4d6",borderRadius:10,color:"#fff",fontSize:18,fontWeight:900,cursor:"pointer",textTransform:"uppercase",letterSpacing:2,boxShadow:"0 0 20px #4d640",marginTop:8}}>💰 CASH OUT ${chestChoice.totalPayout.toFixed(2)}</button>
+        <button onClick={keepPlaying} style={{width:"100%",maxWidth:280,padding:"16px 0",background:"linear-gradient(135deg,#822,#411)",border:"2px solid #f44",borderRadius:10,color:"#fff",fontSize:16,fontWeight:900,cursor:"pointer",textTransform:"uppercase",letterSpacing:2,boxShadow:"0 0 20px #f4440"}}>
+          ⚔️ KEEP PLAYING
+          <div style={{fontSize:11,fontWeight:400,color:"#ffa",marginTop:4,letterSpacing:1}}>Next chest: +{chestChoice.nextMulti}x (${chestChoice.nextVal.toFixed(2)})</div>
+        </button>
+        <div style={{fontSize:10,color:"#f66",marginTop:2}}>Die and you lose the {chestChoice.totalMulti}x bet bonus</div>
+      </div>)}
+      {lvlUp&&(<div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.88)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,zIndex:20,padding:20}}>
+        <div style={{fontSize:22,fontWeight:900,color:"#48f",textShadow:"0 0 15px #48f80",marginBottom:8}}>⬆ LEVEL UP ⬆</div>
+        {lvlUp.map((c,i)=>(
+          <button key={i} onClick={()=>pickChoice(c)} style={{width:"100%",maxWidth:300,padding:"14px 16px",background:c.t==="wup"?"rgba(255,180,0,0.1)":"rgba(68,136,255,0.1)",border:`1px solid ${c.t==="wup"?"#ffa50055":"#48f55"}`,borderRadius:10,color:"#ddf",cursor:"pointer",textAlign:"left",display:"flex",flexDirection:"column",gap:4}}>
+            <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>{c.lbl}</div>
+            <div style={{fontSize:11,color:"#88a"}}>{c.desc}</div>
+          </button>))}
+      </div>)}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
+</script>
+</body>
+</html>

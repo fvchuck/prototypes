@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARKANOID GOLD</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Oswald:wght@400;600;700&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #080508;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(80,20,20,0.35) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, rgba(20,20,60,0.3) 0%, transparent 70%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 14px 8px 20px;
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  color: #fff;
+  user-select: none;
+}
+
+header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 2px;
+}
+
+.game-title {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 8px;
+  color: #e8b84b;
+  text-shadow:
+    0 0 20px rgba(232,184,75,0.7),
+    0 0 50px rgba(232,184,75,0.3);
+  text-transform: uppercase;
+}
+
+.game-subtitle {
+  font-size: 9px;
+  letter-spacing: 5px;
+  color: rgba(232,184,75,0.45);
+  text-transform: uppercase;
+}
+
+.game-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+canvas {
+  display: block;
+  border: 1px solid rgba(232,184,75,0.2);
+  border-bottom: none;
+  box-shadow:
+    0 0 40px rgba(232,184,75,0.06),
+    0 0 1px rgba(232,184,75,0.3),
+    inset 0 0 60px rgba(0,0,20,0.6);
+  cursor: default;
+}
+
+/* Scanline overlay */
+canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.04) 2px,
+    rgba(0,0,0,0.04) 4px
+  );
+  pointer-events: none;
+}
+
+#hud {
+  width: 540px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(10,6,4,0.92);
+  border: 1px solid rgba(232,184,75,0.18);
+  border-top: 1px solid rgba(232,184,75,0.08);
+  border-radius: 0 0 6px 6px;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.hitem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hlabel {
+  font-size: 7.5px;
+  color: rgba(232,184,75,0.45);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+}
+
+.hval {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 16px;
+  font-weight: 400;
+  color: #5cf;
+  white-space: nowrap;
+}
+.hval.gold { color: #e8b84b; }
+.hval.green { color: #4dcc88; }
+.hval.dim { color: #667; font-size: 13px; }
+
+.betctrl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.adj {
+  background: rgba(232,184,75,0.08);
+  border: 1px solid rgba(232,184,75,0.2);
+  color: rgba(232,184,75,0.6);
+  width: 18px; height: 18px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 9px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.1s;
+  line-height: 1;
+  font-family: inherit;
+}
+.adj:hover {
+  background: rgba(232,184,75,0.18);
+  color: #e8b84b;
+  border-color: rgba(232,184,75,0.5);
+}
+
+#buybtn {
+  background: linear-gradient(160deg, rgba(30,60,30,0.9), rgba(10,30,10,0.9));
+  border: 1px solid rgba(80,200,120,0.4);
+  color: #4dcc88;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: center;
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(80,200,120,0.1);
+}
+#buybtn:hover:not(:disabled) {
+  background: linear-gradient(160deg, rgba(40,80,40,0.95), rgba(20,50,20,0.95));
+  border-color: rgba(80,200,120,0.7);
+  box-shadow: 0 0 16px rgba(80,200,120,0.2);
+}
+#buybtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.note {
+  margin-top: 10px;
+  font-size: 9px;
+  color: rgba(255,255,255,0.18);
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="game-title">Arkanoid Gold</div>
+  <div class="game-subtitle">idle ✦ real money ✦ gambling edition</div>
+</header>
+
+<div class="game-wrap">
+  <canvas id="c" width="540" height="640"></canvas>
+</div>
+
+<div id="hud">
+  <div class="hitem">
+    <div class="hlabel">Balance</div>
+    <div class="hval green" id="ubal">$100.00</div>
+  </div>
+  <div class="hitem">
+    <div class="hlabel">Bet</div>
+    <div class="betctrl">
+      <button class="adj" id="bdown" title="Decrease bet">◀</button>
+      <div class="hval gold" id="ubet">$1.00</div>
+      <button class="adj" id="bup" title="Increase bet">▶</button>
+    </div>
+  </div>
+  <div class="hitem">
+    <div class="hlabel">Per Hit</div>
+    <div class="hval green" id="uphit">$0.03</div>
+  </div>
+  <div class="hitem">
+    <div class="hlabel">Level</div>
+    <div class="hval" id="ulvl">1</div>
+  </div>
+  <div class="hitem">
+    <div class="hlabel">Balls</div>
+    <div class="hval" id="uballs">1</div>
+  </div>
+  <div class="hitem">
+    <div class="hlabel">Bricks</div>
+    <div class="hval dim" id="ubricks">0</div>
+  </div>
+  <button id="buybtn" title="Purchase an additional ball">
+    ⬤ Buy Ball<br><span id="ubcost" style="color:rgba(77,204,136,0.7);font-size:10px;">$5.00</span>
+  </button>
+</div>
+
+<div class="note">⚠ File:// audio access blocked by browser — using procedural Web Audio synthesis</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const W = 540, H = 640;
+const GUT = 60;           // corner gutter triangle dimension
+const BALL_R = 7;
+const TRAIL_LEN = 5;
+const BRICK_W = 72, BRICK_H = 25, BRICK_GAP = 8;
+const BCOLS = 6, BROWS = 8;
+const BOX = (W - (BCOLS * (BRICK_W + BRICK_GAP) - BRICK_GAP)) / 2; // left offset
+const BOY = 105;           // top offset
+const COIN_R = 7;
+const COIN_GRAV = 0.26;
+const COIN_DAMP = 0.48;
+const COIN_MAXB = 5;
+const COIN_TTL  = 480;    // frames before coin vanishes
+
+const BET_OPTS = [0.10, 0.25, 0.50, 1.00, 2.00, 5.00, 10.00, 25.00, 50.00, 100.00];
+let betIdx = 3;
+
+// ═══════════════════════════════════════════════════════════
+// CANVAS
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+// ═══════════════════════════════════════════════════════════
+// AUDIO  (procedural Web Audio API)
+// ═══════════════════════════════════════════════════════════
+let AC = null;
+function getAC() {
+  if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+  return AC;
+}
+
+function noiseBurst(freq, freqEnd, vol, dur) {
+  try {
+    const a = getAC(), t = a.currentTime;
+    const sr = a.sampleRate;
+    const buf = a.createBuffer(1, Math.floor(sr * dur), sr);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 0.6);
+    const src = a.createBufferSource();
+    src.buffer = buf;
+    const filt = a.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.setValueAtTime(freq, t);
+    if (freqEnd) filt.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+    filt.Q.value = 2.8;
+    const gain = a.createGain();
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt); filt.connect(gain); gain.connect(a.destination);
+    src.start(t); src.stop(t + dur + 0.01);
+  } catch(e) {}
+}
+
+function sineTone(freq, freqEnd, vol, dur, delay) {
+  try {
+    const a = getAC(), t = a.currentTime + (delay || 0);
+    const osc = a.createOscillator(), gain = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain); gain.connect(a.destination);
+    osc.start(t); osc.stop(t + dur + 0.01);
+  } catch(e) {}
+}
+
+function triTone(freq, vol, dur, delay) {
+  try {
+    const a = getAC(), t = a.currentTime + (delay || 0);
+    const osc = a.createOscillator(), gain = a.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain); gain.connect(a.destination);
+    osc.start(t); osc.stop(t + dur + 0.01);
+  } catch(e) {}
+}
+
+// SFX
+function sndBrickHit(health) {
+  // Pitch rises as brick gets more damaged (more cracked = higher freq)
+  const f = 180 + (20 - health) * 52;
+  noiseBurst(f, f * 0.55, 0.55, 0.07);
+  sineTone(f * 1.4, f * 0.9, 0.09, 0.05);
+}
+
+function sndBrickBreak() {
+  noiseBurst(420, 90, 0.8, 0.20);
+  sineTone(260, 65, 0.14, 0.18);
+  triTone(180, 0.1, 0.22);
+}
+
+function sndCoinBounce() {
+  sineTone(1600, 750, 0.1, 0.04);
+}
+
+function sndCoinCollect() {
+  [523.25, 659.25, 783.99, 1046.50, 1318.51].forEach((f, i) => {
+    sineTone(f, f * 1.01, 0.18, 0.24, i * 0.065);
+    triTone(f * 0.5, 0.06, 0.2, i * 0.065);
+  });
+}
+
+function sndBallLost() {
+  try {
+    const a = getAC(), t = a.currentTime;
+    const osc = a.createOscillator(), gain = a.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(400, t);
+    osc.frequency.exponentialRampToValueAtTime(75, t + 0.5);
+    gain.gain.setValueAtTime(0.18, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    osc.connect(gain); gain.connect(a.destination);
+    osc.start(t); osc.stop(t + 0.52);
+  } catch(e) {}
+}
+
+function sndLevelUp() {
+  [392, 494, 587, 784, 988, 1175].forEach((f, i) => {
+    triTone(f, 0.14, 0.35, i * 0.1);
+    sineTone(f * 2, null, 0.06, 0.25, i * 0.1);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// COLOR HELPERS
+// ═══════════════════════════════════════════════════════════
+// Brick health colors: blue(full) → cyan → green → yellow → orange → red(near dead)
+const HPAL = [
+  [255, 35, 35],    // dying — red
+  [255, 130, 0],    // low   — orange
+  [220, 220, 0],    // mid   — yellow
+  [40,  210, 120],  // good  — green
+  [30,  150, 255],  // full  — blue
+];
+
+function brickRGB(health, max = 20) {
+  const t = health / max; // 0..1
+  const seg = HPAL.length - 1;
+  const si  = Math.min(Math.floor(t * seg), seg - 1);
+  const st  = t * seg - si;
+  const a = HPAL[si], b = HPAL[si + 1];
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * st),
+    Math.round(a[1] + (b[1] - a[1]) * st),
+    Math.round(a[2] + (b[2] - a[2]) * st),
+  ];
+}
+
+function brickColor(health, max = 20) {
+  const [r,g,b] = brickRGB(health, max);
+  return `rgb(${r},${g},${b})`;
+}
+
+function brickGlow(health, max = 20) {
+  const [r,g,b] = brickRGB(health, max);
+  return `rgba(${r},${g},${b},0.7)`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// GUTTER CHECK  (triangular corners)
+// ═══════════════════════════════════════════════════════════
+function inGutter(x, y) {
+  return (x + y < GUT) ||
+         ((W - x) + y < GUT) ||
+         (x + (H - y) < GUT) ||
+         ((W - x) + (H - y) < GUT);
+}
+
+// ═══════════════════════════════════════════════════════════
+// BRICK GENERATION
+// ═══════════════════════════════════════════════════════════
+function genBricks(level) {
+  const total = BCOLS * BROWS;
+  const count = Math.min(10 + (level - 1) * 5, 46);
+  const slots = Array.from({ length: total }, (_, i) => i);
+  for (let i = slots.length - 1; i > 0; i--) {
+    const j = 0 | (Math.random() * (i + 1));
+    [slots[i], slots[j]] = [slots[j], slots[i]];
+  }
+  return slots.slice(0, count).map(s => {
+    const col = s % BCOLS, row = 0 | (s / BCOLS);
+    return {
+      x: BOX + col * (BRICK_W + BRICK_GAP),
+      y: BOY + row * (BRICK_H + BRICK_GAP),
+      w: BRICK_W, h: BRICK_H,
+      hp: 20, maxHp: 20,
+      flash: 0, shake: 0,
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// GAME STATE
+// ═══════════════════════════════════════════════════════════
+const G = {
+  balance:     100,
+  bet:         1.00,
+  level:       1,
+  balls:       [],
+  bricks:      [],
+  coins:       [],
+  parts:       [],
+  floats:      [],
+  ballCost:    5,
+  ballBuys:    0,
+  lvlDone:     false,
+  lvlTimer:    0,
+};
+
+// ═══════════════════════════════════════════════════════════
+// SPAWNING
+// ═══════════════════════════════════════════════════════════
+function spawnBall() {
+  const spd = 4.5 + G.level * 0.18;
+  const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.7;
+  G.balls.push({
+    x: W / 2 + (Math.random() - 0.5) * 100,
+    y: H - 110,
+    vx: Math.cos(angle) * spd,
+    vy: Math.sin(angle) * spd,
+    trail: [],
+  });
+}
+
+function spawnCoin(x, y) {
+  G.coins.push({
+    x, y,
+    vx: (Math.random() - 0.5) * 2.8,
+    vy: -(0.8 + Math.random() * 1.8),
+    bounces: 0, age: 0, alive: true,
+    shimmer: Math.random() * Math.PI * 2,
+  });
+}
+
+function burst(x, y, rgb, n = 10) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 1.5 + Math.random() * 4;
+    G.parts.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      r: 1.5 + Math.random() * 2,
+      life: 1,
+      color: `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`,
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAYOUT
+// ═══════════════════════════════════════════════════════════
+function pay(amt, x, y, color) {
+  G.balance += amt;
+  G.floats.push({
+    x, y,
+    text: '+$' + amt.toFixed(2),
+    life: 1.3, vy: -1.1,
+    color: color || '#4dcc88',
+  });
+  updateUI();
+}
+
+// ═══════════════════════════════════════════════════════════
+// COLLISION
+// ═══════════════════════════════════════════════════════════
+function circHitRect(bx, by, r, rx, ry, rw, rh) {
+  const cx = Math.max(rx, Math.min(bx, rx + rw));
+  const cy = Math.max(ry, Math.min(by, ry + rh));
+  const dx = bx - cx, dy = by - cy;
+  return dx * dx + dy * dy < r * r;
+}
+
+function bounceOff(ball, brick) {
+  const cx = Math.max(brick.x, Math.min(ball.x, brick.x + brick.w));
+  const cy = Math.max(brick.y, Math.min(ball.y, brick.y + brick.h));
+  const dx = ball.x - cx, dy = ball.y - cy;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    ball.vx = -ball.vx;
+    ball.x += ball.vx * 1.5;
+  } else {
+    ball.vy = -ball.vy;
+    ball.y += ball.vy * 1.5;
+  }
+}
+
+function enforceMinAngle(ball) {
+  const spd = Math.hypot(ball.vx, ball.vy);
+  const MIN_VY = spd * 0.18;
+  if (Math.abs(ball.vy) < MIN_VY) {
+    ball.vy = MIN_VY * (ball.vy >= 0 ? 1 : -1);
+    ball.vx = Math.sqrt(spd * spd - ball.vy * ball.vy) * (ball.vx >= 0 ? 1 : -1);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// UPDATE
+// ═══════════════════════════════════════════════════════════
+function update() {
+  // Level transition
+  if (G.lvlDone) {
+    if (--G.lvlTimer <= 0) {
+      G.level++;
+      G.bricks = genBricks(G.level);
+      G.coins  = [];
+      G.lvlDone = false;
+      updateUI();
+    }
+  } else if (G.bricks.length === 0) {
+    G.lvlDone  = true;
+    G.lvlTimer = 210;
+    sndLevelUp();
+  }
+
+  // ── BALLS ──────────────────────────────────────────────
+  for (let i = G.balls.length - 1; i >= 0; i--) {
+    const b = G.balls[i];
+
+    // Trail
+    b.trail.push({ x: b.x, y: b.y });
+    if (b.trail.length > TRAIL_LEN) b.trail.shift();
+
+    b.x += b.vx;
+    b.y += b.vy;
+
+    // Gutter check BEFORE wall bounce
+    if (inGutter(b.x, b.y)) {
+      G.balls.splice(i, 1);
+      sndBallLost();
+      updateUI();
+      continue;
+    }
+
+    // Wall bounce
+    if (b.x - BALL_R < 0)   { b.x = BALL_R;     b.vx =  Math.abs(b.vx); }
+    if (b.x + BALL_R > W)   { b.x = W - BALL_R; b.vx = -Math.abs(b.vx); }
+    if (b.y - BALL_R < 0)   { b.y = BALL_R;     b.vy =  Math.abs(b.vy); }
+    if (b.y + BALL_R > H)   { b.y = H - BALL_R; b.vy = -Math.abs(b.vy); }
+
+    enforceMinAngle(b);
+
+    // Brick collisions
+    for (let j = G.bricks.length - 1; j >= 0; j--) {
+      const br = G.bricks[j];
+      if (!circHitRect(b.x, b.y, BALL_R, br.x, br.y, br.w, br.h)) continue;
+
+      bounceOff(b, br);
+      br.hp--;
+      br.flash = 9;
+      if (br.hp <= 4) br.shake = 4;
+
+      sndBrickHit(Math.max(1, br.hp));
+      pay(G.bet * 0.03, br.x + br.w / 2, br.y - 8);
+
+      // Coin drop: 9% per hit
+      if (Math.random() < 0.09) {
+        spawnCoin(br.x + br.w / 2 + (Math.random() - 0.5) * 30, br.y + br.h + 4);
+      }
+
+      if (br.hp <= 0) {
+        const rgb = brickRGB(5, 20); // warm color for explosion
+        burst(br.x + br.w / 2, br.y + br.h / 2, rgb, 14);
+        pay(G.bet * 0.25, br.x + br.w / 2, br.y + br.h / 2, '#e8b84b');
+        sndBrickBreak();
+        G.bricks.splice(j, 1);
+      }
+      break; // one brick collision per ball per frame
+    }
+
+    // Coin collisions
+    for (let k = G.coins.length - 1; k >= 0; k--) {
+      const co = G.coins[k];
+      if (!co.alive) continue;
+      const dx = b.x - co.x, dy = b.y - co.y;
+      const rr = BALL_R + COIN_R;
+      if (dx * dx + dy * dy < rr * rr) {
+        co.alive = false;
+        pay(G.bet * 0.45, co.x, co.y - 14, '#ffd700');
+        sndCoinCollect();
+        burst(co.x, co.y, [255, 215, 0], 12);
+      }
+    }
+  }
+
+  // ── COINS ──────────────────────────────────────────────
+  G.coins = G.coins.filter(c => c.alive);
+  for (let i = G.coins.length - 1; i >= 0; i--) {
+    const co = G.coins[i];
+    co.vy += COIN_GRAV;
+    co.x  += co.vx;
+    co.y  += co.vy;
+    co.age++;
+    co.shimmer += 0.11;
+
+    if (co.y + COIN_R > H - 4) {
+      co.y = H - 4 - COIN_R;
+      co.vy *= -COIN_DAMP;
+      co.vx *= 0.82;
+      co.bounces++;
+      if (Math.abs(co.vy) > 0.8) sndCoinBounce();
+      if (co.bounces >= COIN_MAXB || Math.abs(co.vy) < 0.35) {
+        G.coins.splice(i, 1); continue;
+      }
+    }
+    if (co.x - COIN_R < 0)  { co.x = COIN_R;     co.vx =  Math.abs(co.vx); }
+    if (co.x + COIN_R > W)  { co.x = W - COIN_R; co.vx = -Math.abs(co.vx); }
+    if (co.age > COIN_TTL) { G.coins.splice(i, 1); }
+  }
+
+  // ── PARTICLES ──────────────────────────────────────────
+  for (let i = G.parts.length - 1; i >= 0; i--) {
+    const p = G.parts[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.12;
+    p.life -= 0.026;
+    if (p.life <= 0) G.parts.splice(i, 1);
+  }
+
+  // ── FLOATS ─────────────────────────────────────────────
+  for (let i = G.floats.length - 1; i >= 0; i--) {
+    const f = G.floats[i];
+    f.y += f.vy;
+    f.life -= 0.020;
+    if (f.life <= 0) G.floats.splice(i, 1);
+  }
+
+  // ── BRICK TIMERS ───────────────────────────────────────
+  for (const br of G.bricks) {
+    if (br.flash > 0) br.flash--;
+    if (br.shake > 0) br.shake--;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// DRAW
+// ═══════════════════════════════════════════════════════════
+let frame = 0;
+
+function draw() {
+  frame++;
+  ctx.clearRect(0, 0, W, H);
+
+  // ── BG ─────────────────────────────────────────────────
+  ctx.fillStyle = '#07060f';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid
+  ctx.strokeStyle = 'rgba(100,80,200,0.035)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 38) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 38) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Vignette gradient
+  const vig = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W * 0.85);
+  vig.addColorStop(0, 'transparent');
+  vig.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── GUTTER TRIANGLES ───────────────────────────────────
+  const gutCorners = [
+    [0, 0, GUT, 0, 0, GUT],
+    [W, 0, W - GUT, 0, W, GUT],
+    [0, H, GUT, H, 0, H - GUT],
+    [W, H, W - GUT, H, W, H - GUT],
+  ];
+
+  // Fill
+  gutCorners.forEach(([x1,y1,x2,y2,x3,y3]) => {
+    ctx.fillStyle = 'rgba(40,0,0,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+    ctx.closePath(); ctx.fill();
+  });
+
+  // Danger stripes
+  for (let k = 0; k < 5; k++) {
+    const pct = (k + 1) / 6;
+    const alpha = 0.25 - k * 0.04;
+    ctx.strokeStyle = `rgba(200,20,20,${alpha})`;
+    ctx.lineWidth = 1;
+    gutCorners.forEach(([x1,y1,x2,y2,x3,y3]) => {
+      // Interpolate stripe along hypotenuse
+      const ax = x2 + (x1 - x2) * pct, ay = y2;
+      const bx2 = x1, by2 = y3 + (y1 - y3) * pct;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx2, by2); ctx.stroke();
+    });
+  }
+
+  // Gutter edge glow
+  ctx.strokeStyle = 'rgba(180,20,20,0.5)';
+  ctx.lineWidth = 1.5;
+  gutCorners.forEach(([x1,y1,x2,y2,x3,y3]) => {
+    ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x3, y3); ctx.stroke();
+  });
+
+  // OUT labels
+  ctx.fillStyle = 'rgba(200,30,30,0.5)';
+  ctx.font = '7px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const goff = GUT * 0.37;
+  ctx.fillText('OUT', goff, goff);
+  ctx.fillText('OUT', W - goff, goff);
+  ctx.fillText('OUT', goff, H - goff);
+  ctx.fillText('OUT', W - goff, H - goff);
+
+  // ── BRICKS ─────────────────────────────────────────────
+  for (const br of G.bricks) {
+    const col  = brickColor(br.hp, br.maxHp);
+    const glow = brickGlow(br.hp, br.maxHp);
+    const sx   = br.shake > 0 ? (Math.random() - 0.5) * 2.5 : 0;
+    const sy   = br.shake > 0 ? (Math.random() - 0.5) * 2.5 : 0;
+    const bx   = br.x + sx, by = br.y + sy;
+    const rad  = 3;
+
+    // Glow
+    ctx.save();
+    ctx.shadowColor = br.flash > 0 ? '#ffffff' : glow;
+    ctx.shadowBlur  = br.flash > 0 ? 22 : 7;
+    ctx.fillStyle   = br.flash > 0 ? '#ffffff' : col;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(bx, by, br.w, br.h, rad);
+    } else {
+      ctx.rect(bx, by, br.w, br.h);
+    }
+    ctx.fill();
+    ctx.restore();
+
+    // Inner bevel highlight
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(bx + rad, by + 1);
+    ctx.lineTo(bx + br.w - rad, by + 1);
+    ctx.stroke();
+
+    // Inner shadow bottom
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.moveTo(bx + rad, by + br.h - 2);
+    ctx.lineTo(bx + br.w - rad, by + br.h - 2);
+    ctx.stroke();
+
+    // HP number
+    const dark = br.hp > 12;
+    ctx.fillStyle = br.flash > 0 ? '#000'
+      : dark ? 'rgba(255,255,255,0.75)' : '#fff';
+    ctx.font = `bold ${br.hp > 9 ? 9 : 10}px 'Share Tech Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(br.hp, bx + br.w / 2, by + br.h / 2 + 0.5);
+  }
+
+  // ── COINS ──────────────────────────────────────────────
+  for (const co of G.coins) {
+    const pulse = 0.88 + Math.sin(co.shimmer) * 0.12;
+    const fade  = Math.min(1, (COIN_TTL - co.age) / 80);
+
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur  = 10 * pulse;
+
+    const gr = ctx.createRadialGradient(co.x - 2, co.y - 2, 0.5, co.x, co.y, COIN_R);
+    gr.addColorStop(0, '#fffac8');
+    gr.addColorStop(0.45, '#ffd700');
+    gr.addColorStop(1, '#a06000');
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(co.x, co.y, COIN_R * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = fade * 0.85;
+    ctx.fillStyle = 'rgba(60,30,0,0.9)';
+    ctx.font = 'bold 7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('$', co.x, co.y + 0.5);
+    ctx.restore();
+  }
+
+  // ── BALLS ──────────────────────────────────────────────
+  for (const b of G.balls) {
+    // Trail
+    b.trail.forEach((pt, ti) => {
+      const a = (ti + 1) / (b.trail.length + 1) * 0.35;
+      ctx.fillStyle = `rgba(80,160,255,${a})`;
+      const tr = BALL_R * 0.4 * ((ti + 1) / b.trail.length);
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, tr, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Ball
+    ctx.save();
+    ctx.shadowColor = '#aaddff';
+    ctx.shadowBlur  = 16;
+    const bg = ctx.createRadialGradient(b.x - 2.5, b.y - 2.5, 0.5, b.x, b.y, BALL_R);
+    bg.addColorStop(0, '#ffffff');
+    bg.addColorStop(0.3, '#c0e0ff');
+    bg.addColorStop(0.75, '#3080d0');
+    bg.addColorStop(1, '#102060');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, BALL_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ── PARTICLES ──────────────────────────────────────────
+  ctx.save();
+  for (const p of G.parts) {
+    ctx.globalAlpha = Math.max(0, p.life * p.life);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // ── FLOATING PAYOUT TEXT ────────────────────────────────
+  ctx.save();
+  for (const f of G.floats) {
+    const a = Math.min(1, f.life * 1.4);
+    ctx.globalAlpha = a;
+    ctx.shadowColor = f.color;
+    ctx.shadowBlur  = 8;
+    ctx.fillStyle   = f.color;
+    ctx.font        = 'bold 12px "Share Tech Mono", monospace';
+    ctx.textAlign   = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.restore();
+
+  // ── LEVEL COMPLETE ──────────────────────────────────────
+  if (G.lvlDone) {
+    ctx.fillStyle = 'rgba(0,0,0,0.58)';
+    ctx.fillRect(0, 0, W, H);
+
+    const sc = 1 + Math.sin(frame * 0.07) * 0.04;
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(sc, sc);
+
+    ctx.shadowColor = '#e8b84b';
+    ctx.shadowBlur  = 35;
+    ctx.fillStyle   = '#e8b84b';
+    ctx.font        = 'bold 36px Oswald, sans-serif';
+    ctx.letterSpacing = '4px';
+    ctx.textAlign   = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('LEVEL COMPLETE', 0, -24);
+
+    ctx.shadowBlur  = 0;
+    ctx.fillStyle   = 'rgba(255,255,255,0.55)';
+    ctx.font        = '15px "Share Tech Mono", monospace';
+    ctx.fillText('Level ' + (G.level + 1) + ' incoming…', 0, 22);
+    ctx.restore();
+  }
+
+  // ── NO BALLS WARNING ────────────────────────────────────
+  if (G.balls.length === 0 && !G.lvlDone) {
+    const pulse = 0.6 + Math.abs(Math.sin(frame * 0.06)) * 0.4;
+    ctx.fillStyle = `rgba(180,0,0,${0.08 * pulse})`;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.shadowColor = '#ff4040';
+    ctx.shadowBlur  = 20;
+    ctx.fillStyle   = `rgba(255,80,80,${0.85 + pulse * 0.15})`;
+    ctx.font        = 'bold 17px "Share Tech Mono", monospace';
+    ctx.textAlign   = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚠  ALL BALLS LOST — BUY MORE BELOW', W / 2, H / 2);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOOP
+// ═══════════════════════════════════════════════════════════
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════════════════
+function updateUI() {
+  document.getElementById('ubal').textContent  = '$' + G.balance.toFixed(2);
+  document.getElementById('ulvl').textContent  = G.level;
+  document.getElementById('uballs').textContent = G.balls.length;
+  document.getElementById('ubricks').textContent = G.bricks.length;
+  document.getElementById('ubet').textContent  = '$' + G.bet.toFixed(2);
+  document.getElementById('ubcost').textContent = '$' + G.ballCost.toFixed(2);
+  document.getElementById('uphit').textContent  = '$' + (G.bet * 0.03).toFixed(3);
+  document.getElementById('buybtn').disabled = G.balance < G.ballCost;
+}
+
+document.getElementById('bdown').onclick = () => {
+  if (betIdx > 0) { betIdx--; G.bet = BET_OPTS[betIdx]; updateUI(); }
+};
+document.getElementById('bup').onclick = () => {
+  if (betIdx < BET_OPTS.length - 1) { betIdx++; G.bet = BET_OPTS[betIdx]; updateUI(); }
+};
+document.getElementById('buybtn').onclick = () => {
+  getAC(); // ensure audio context initialized on user gesture
+  if (G.balance < G.ballCost) return;
+  G.balance  -= G.ballCost;
+  G.ballCost  = Math.round(G.ballCost * 1.65 * 100) / 100;
+  G.ballBuys++;
+  spawnBall();
+  updateUI();
+};
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+G.bricks = genBricks(1);
+spawnBall();
+updateUI();
+loop();
+</script>
+</body>
+</html>
