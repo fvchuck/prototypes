@@ -378,7 +378,7 @@ function spawnBall() {
     y: H*0.8,
     vx: Math.cos(ang)*spd,
     vy: Math.sin(ang)*spd,
-    trail: [],
+    trail: [], lastBrick:null, brickCd:0,
   });
 }
 
@@ -456,10 +456,12 @@ function update() {
     if(b.y+BALL_R>H)  {b.y=H-BALL_R;  b.vy=-Math.abs(b.vy);}
     clampAngle(b);
 
+    if(b.brickCd>0) b.brickCd--;
     for(let j=G.bricks.length-1;j>=0;j--) {
       const br=G.bricks[j];
+      if(br===b.lastBrick&&b.brickCd>0) continue;
       if(!circRect(b.x,b.y,BALL_R,br.x,br.y,br.w,br.h)) continue;
-      bounceOff(b,br);
+      bounceOff(b,br); b.lastBrick=br; b.brickCd=3;
       br.hp--; br.flash=8; if(br.hp<=4) br.shake=4;
       sndHit(Math.max(1,br.hp));
       pay(G.bet*0.03, br.x+br.w/2, br.y-H*0.016);
@@ -477,7 +479,7 @@ function update() {
     for(let k=G.powerups.length-1;k>=0;k--){
       const pu=G.powerups[k];
       if((b.x-pu.x)**2+(b.y-pu.y)**2<(BALL_R+PU_R)**2){
-        if(pu.type==='multiball'){const spd=Math.hypot(b.vx,b.vy),ang=Math.atan2(b.vy,b.vx);G.balls.push({x:b.x,y:b.y,vx:Math.cos(ang+Math.PI/4)*spd,vy:Math.sin(ang+Math.PI/4)*spd,trail:[]});G.balls.push({x:b.x,y:b.y,vx:Math.cos(ang-Math.PI/4)*spd,vy:Math.sin(ang-Math.PI/4)*spd,trail:[]});}
+        if(pu.type==='multiball'){const spd=Math.hypot(b.vx,b.vy),ang=Math.atan2(b.vy,b.vx);G.balls.push({x:b.x,y:b.y,vx:Math.cos(ang+Math.PI/4)*spd,vy:Math.sin(ang+Math.PI/4)*spd,trail:[],lastBrick:null,brickCd:0});G.balls.push({x:b.x,y:b.y,vx:Math.cos(ang-Math.PI/4)*spd,vy:Math.sin(ang-Math.PI/4)*spd,trail:[],lastBrick:null,brickCd:0});}
         else{G.bumperHits++;}
         burst(pu.x,pu.y,pu.type==='multiball'?[64,200,224]:[200,80,255],12);sndPowerup();G.powerups.splice(k,1);updateUI();
       }
