@@ -235,12 +235,13 @@ let W = REF_W, H = 0, SCALE = 1;
 
 // All game constants are derived from W/H at init/resize
 let BALL_R, GUT, BCOLS, BROWS, BW, BH, BGAP, BOX, BOY;
-let COIN_R;
+let COIN_R, PU_R;
 
 function computeConstants() {
   BALL_R = Math.round(W * 0.022);   // ~8.5px on 390
   GUT    = Math.round(W * 0.14);    // ~54px corner dead zone
   COIN_R = Math.round(W * 0.020);
+  PU_R   = Math.round(W * 0.028);
 
   BCOLS  = 5;
   BROWS  = 7;
@@ -322,6 +323,8 @@ function sndCoinBounce() { sine(1600,750,.08,.04); }
 function sndCoinGet()    { [523,659,784,1047,1319].forEach((f,i)=>{sine(f,null,.18,.22,i*.06);tri(f*.5,.06,.18,i*.06);}); }
 function sndLost()       { try{const a=getAC(),t=a.currentTime,o=a.createOscillator(),g=a.createGain();o.type='sawtooth';o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(75,t+.5);g.gain.setValueAtTime(.16,t);g.gain.exponentialRampToValueAtTime(.0001,t+.5);o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+.52);}catch(e){} }
 function sndLevelUp()    { [392,494,587,784,988,1175].forEach((f,i)=>{tri(f,.14,.35,i*.1);sine(f*2,null,.06,.25,i*.1);}); }
+function sndPowerup()    { [440,660,880].forEach((f,i)=>{sine(f,null,.15,.15,i*.06);tri(f*.5,.08,.12,i*.06);}); }
+function sndBumper()     { noise(600,300,.4,.08); sine(800,400,.1,.06); }
 
 // ─────────────────────────────────────────────────────
 // COLOR
@@ -363,8 +366,8 @@ let betIdx=3;
 
 const G={
   balance:100, bet:1.00, level:1,
-  balls:[], bricks:[], coins:[], parts:[], floats:[],
-  ballCost:5, lvlDone:false, lvlTimer:0
+  balls:[], bricks:[], coins:[], parts:[], floats:[], powerups:[],
+  ballCost:5, bumperHits:0, lvlDone:false, lvlTimer:0
 };
 
 function spawnBall() {
@@ -426,7 +429,7 @@ const COIN_DAMP=0.48, COIN_MAXB=5, COIN_TTL=520;
 const TRAIL_LEN=7;
 
 function update() {
-  if(G.lvlDone){ if(--G.lvlTimer<=0){ G.level++; G.bricks=genBricks(G.level); G.coins=[]; G.lvlDone=false; updateUI(); } return; }
+  if(G.lvlDone){ if(--G.lvlTimer<=0){ G.level++; G.bricks=genBricks(G.level); G.coins=[]; G.powerups=[]; G.lvlDone=false; updateUI(); } return; }
   if(G.bricks.length===0&&G.balls.length>0){ G.lvlDone=true; G.lvlTimer=210; sndLevelUp(); return; }
 
   // Balls
@@ -436,7 +439,16 @@ function update() {
     if(b.trail.length>TRAIL_LEN) b.trail.shift();
     b.x+=b.vx; b.y+=b.vy;
 
-    if(inGutter(b.x,b.y)){ G.balls.splice(i,1); sndLost(); updateUI(); continue; }
+    if(inGutter(b.x,b.y)){
+      if(G.bumperHits>0){
+        const bCorners=[[0,0],[W,0],[0,H],[W,H]];let nc=bCorners[0],md=Infinity;
+        for(const c of bCorners){const d=(b.x-c[0])**2+(b.y-c[1])**2;if(d<md){md=d;nc=c;}}
+        const bdx=b.x-nc[0],bdy=b.y-nc[1],blen=Math.hypot(bdx,bdy)||1,bspd=Math.hypot(b.vx,b.vy);
+        b.vx=(bdx/blen)*bspd;b.vy=(bdy/blen)*bspd;b.x+=b.vx*3;b.y+=b.vy*3;
+        G.bumperHits--;clampAngle(b);sndBumper();burst(b.x,b.y,[200,80,255],6);updateUI();continue;
+      }
+      G.balls.splice(i,1); sndLost(); updateUI(); continue;
+    }
 
     if(b.x-BALL_R<0)  {b.x=BALL_R;    b.vx= Math.abs(b.vx);}
     if(b.x+BALL_R>W)  {b.x=W-BALL_R;  b.vx=-Math.abs(b.vx);}
@@ -452,13 +464,23 @@ function update() {
       sndHit(Math.max(1,br.hp));
       pay(G.bet*0.03, br.x+br.w/2, br.y-H*0.016);
       if(Math.random()<0.09) spawnCoin(br.x+br.w/2+(Math.random()-.5)*br.w*.6, br.y+br.h+2);
-      if(br.hp<=0){ burst(br.x+br.w/2,br.y+br.h/2,brickRGB(5),14); pay(G.bet*0.25,br.x+br.w/2,br.y+br.h/2,'#e8b84b'); sndBreak(); G.bricks.splice(j,1); }
+      if(br.hp<=0){ burst(br.x+br.w/2,br.y+br.h/2,brickRGB(5),14); pay(G.bet*0.25,br.x+br.w/2,br.y+br.h/2,'#e8b84b'); sndBreak(); if(Math.random()<0.18){const t=Math.random()<0.5?'multiball':'bumpers';G.powerups.push({x:br.x+br.w/2,y:br.y+br.h/2,vy:0,type:t,age:0});} G.bricks.splice(j,1); }
       break;
     }
 
     for(let k=G.coins.length-1;k>=0;k--) {
       const co=G.coins[k]; if(!co.alive) continue;
       if((b.x-co.x)**2+(b.y-co.y)**2<(BALL_R+COIN_R)**2){ co.alive=false; pay(G.bet*0.45,co.x,co.y-H*0.025,'#ffd700'); sndCoinGet(); burst(co.x,co.y,[255,215,0],12); }
+    }
+
+    // Powerup collection
+    for(let k=G.powerups.length-1;k>=0;k--){
+      const pu=G.powerups[k];
+      if((b.x-pu.x)**2+(b.y-pu.y)**2<(BALL_R+PU_R)**2){
+        if(pu.type==='multiball'){const spd=Math.hypot(b.vx,b.vy),ang=Math.atan2(b.vy,b.vx);G.balls.push({x:b.x,y:b.y,vx:Math.cos(ang+Math.PI/4)*spd,vy:Math.sin(ang+Math.PI/4)*spd,trail:[]});G.balls.push({x:b.x,y:b.y,vx:Math.cos(ang-Math.PI/4)*spd,vy:Math.sin(ang-Math.PI/4)*spd,trail:[]});}
+        else{G.bumperHits++;}
+        burst(pu.x,pu.y,pu.type==='multiball'?[64,200,224]:[200,80,255],12);sndPowerup();G.powerups.splice(k,1);updateUI();
+      }
     }
   }
 
@@ -474,6 +496,13 @@ function update() {
     if(co.x-COIN_R<0)  {co.x=COIN_R;   co.vx= Math.abs(co.vx);}
     if(co.x+COIN_R>W)  {co.x=W-COIN_R; co.vx=-Math.abs(co.vx);}
     if(co.age>COIN_TTL) G.coins.splice(i,1);
+  }
+
+  // Powerups
+  for(let i=G.powerups.length-1;i>=0;i--){
+    const pu=G.powerups[i]; pu.vy+=H*0.00015; pu.y+=pu.vy; pu.age++;
+    if(pu.x-PU_R<0)pu.x=PU_R; if(pu.x+PU_R>W)pu.x=W-PU_R;
+    if(pu.y>H+PU_R*2||pu.age>900)G.powerups.splice(i,1);
   }
 
   for(let i=G.parts.length-1;i>=0;i--){ const p=G.parts[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=H*0.0002; p.life-=0.025; if(p.life<=0) G.parts.splice(i,1); }
@@ -504,40 +533,54 @@ function draw() {
   vig.addColorStop(0,'transparent'); vig.addColorStop(1,'rgba(0,0,0,0.55)');
   ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
 
-  // Gutters
-  const corners=[[0,0,GUT,0,0,GUT],[W,0,W-GUT,0,W,GUT],[0,H,GUT,H,0,H-GUT],[W,H,W-GUT,H,W,H-GUT]];
-  const flash=0.55+Math.abs(Math.sin(frame*0.04))*0.2;
-  corners.forEach(([x1,y1,x2,y2,x3,y3])=>{
-    // Fill
-    ctx.fillStyle=`rgba(30,0,0,0.92)`;
-    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath(); ctx.fill();
-    // Danger stripe pattern
-    ctx.save();
-    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath(); ctx.clip();
-    const stripeW=GUT*0.22;
-    for(let s=-2;s<8;s++){
-      const offset=s*stripeW*2;
-      ctx.fillStyle=`rgba(120,0,0,0.18)`;
-      ctx.beginPath(); ctx.moveTo(x1+offset,y1); ctx.lineTo(x1+offset+stripeW,y1); ctx.lineTo(x1+offset+stripeW,y1+GUT*2); ctx.lineTo(x1+offset,y1+GUT*2); ctx.closePath();
-      // simpler: just draw angled lines
+  // Gutters / Bumpers
+  const gcorners=[[0,0,GUT,0,0,GUT],[W,0,W-GUT,0,W,GUT],[0,H,GUT,H,0,H-GUT],[W,H,W-GUT,H,W,H-GUT]];
+  const gflash=0.55+Math.abs(Math.sin(frame*0.04))*0.2;
+  const hasBumpers=G.bumperHits>0;
+  gcorners.forEach(([x1,y1,x2,y2,x3,y3])=>{
+    if(hasBumpers){
+      ctx.fillStyle=`rgba(60,0,120,0.85)`;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath(); ctx.fill();
+      ctx.save();
+      ctx.shadowColor='rgba(200,100,255,0.6)'; ctx.shadowBlur=8;
+      ctx.strokeStyle=`rgba(200,100,255,${gflash*0.9})`;
+      ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(x2,y2); ctx.lineTo(x3,y3); ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.fillStyle=`rgba(30,0,0,0.92)`;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath(); ctx.fill();
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath(); ctx.clip();
+      const stripeW=GUT*0.22;
+      for(let s=-2;s<8;s++){
+        const offset=s*stripeW*2;
+        ctx.fillStyle=`rgba(120,0,0,0.18)`;
+        ctx.beginPath(); ctx.moveTo(x1+offset,y1); ctx.lineTo(x1+offset+stripeW,y1); ctx.lineTo(x1+offset+stripeW,y1+GUT*2); ctx.lineTo(x1+offset,y1+GUT*2); ctx.closePath();
+      }
+      ctx.restore();
+      ctx.strokeStyle=`rgba(200,20,20,${gflash*0.55})`;
+      ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(x2,y2); ctx.lineTo(x3,y3); ctx.stroke();
     }
-    ctx.restore();
-    // Edge glow
-    ctx.strokeStyle=`rgba(200,20,20,${flash*0.55})`;
-    ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.moveTo(x2,y2); ctx.lineTo(x3,y3); ctx.stroke();
   });
 
-  // OUT labels
-  const fs=Math.round(W*0.018);
-  ctx.fillStyle='rgba(200,30,30,0.45)';
-  ctx.font=`${fs}px monospace`;
-  ctx.textAlign='center'; ctx.textBaseline='middle';
+  // Gutter labels
   const goff=GUT*0.36;
-  [[goff,goff],[W-goff,goff],[goff,H-goff],[W-goff,H-goff]].forEach(([x,y])=>ctx.fillText('OUT',x,y));
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  if(hasBumpers){
+    ctx.fillStyle=`rgba(220,140,255,${gflash})`;
+    ctx.font=`bold ${Math.round(W*0.026)}px monospace`;
+    [[goff,goff],[W-goff,goff],[goff,H-goff],[W-goff,H-goff]].forEach(([x,y])=>ctx.fillText(G.bumperHits,x,y));
+  } else {
+    const fs=Math.round(W*0.018);
+    ctx.fillStyle='rgba(200,30,30,0.45)';
+    ctx.font=`${fs}px monospace`;
+    [[goff,goff],[W-goff,goff],[goff,H-goff],[W-goff,H-goff]].forEach(([x,y])=>ctx.fillText('OUT',x,y));
+  }
 
   // Bricks
-  const brickFontSize=Math.round(BH*0.45);
+  const brickFontSize=Math.round(BH*0.38);
   for(const br of G.bricks){
     const sx=br.shake>0?(Math.random()-.5)*W*0.005:0;
     const sy=br.shake>0?(Math.random()-.5)*W*0.005:0;
@@ -558,7 +601,8 @@ function draw() {
     ctx.fillStyle=br.flash>0?'#111':'rgba(255,255,255,0.85)';
     ctx.font=`bold ${brickFontSize}px monospace`;
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(br.hp, bx+br.w/2, by+br.h/2+1);
+    const bval=br.hp*G.bet*0.03+G.bet*0.25;
+    ctx.fillText(bval>=10?'$'+Math.round(bval):bval>=1?'$'+bval.toFixed(1):Math.round(bval*100)+'\u00A2', bx+br.w/2, by+br.h/2+1);
   }
 
   // Coins
@@ -575,6 +619,21 @@ function draw() {
     ctx.font=`bold ${Math.round(COIN_R*1.1)}px sans-serif`;
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('$',co.x,co.y+1);
+    ctx.restore();
+  }
+
+  // Powerups
+  for(const pu of G.powerups){
+    ctx.save();
+    const puCol=pu.type==='multiball'?'#40c8e0':'#cc55ff';
+    ctx.shadowColor=puCol; ctx.shadowBlur=PU_R*2.5;
+    ctx.fillStyle=puCol;
+    ctx.beginPath(); ctx.arc(pu.x,pu.y,PU_R,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#fff';
+    ctx.font=`bold ${Math.round(PU_R*0.85)}px monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(pu.type==='multiball'?'x3':'B',pu.x,pu.y);
     ctx.restore();
   }
 
