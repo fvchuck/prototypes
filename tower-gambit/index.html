@@ -490,14 +490,14 @@ function spawnEnemy(g,type){
 
   const mk=(ox,oy)=>({
     id:++uid,type,x:x+ox,y:y+oy,
-    hp:d.hp(w)*(isEl?3:isSw?.5:1),maxHp:d.hp(w)*(isEl?3:isSw?.5:1),
+    hp:d.hp(w)*(isEl?3:isSw?.2:1),maxHp:d.hp(w)*(isEl?3:isSw?.2:1),
     spd:d.spd(w)*(isEl?.8:isSw?1.35:1),dmg:d.dmg(w)*(isEl?2:1),
     coins:d.coins(w)*(isEl?3:1),xp:d.xp,r:d.r*(isEl?1.5:isSw?.7:1),
     col:isEl?'#ff2222':(isSw?'#aa44cc':d.col),arm:d.arm+(isEl?5:0),fly:d.fly,
     isEl,isSw,isBoss:false,flash:0,
   });
 
-  if(isSw){const cnt=3+0|Math.random()*3;for(let i=0;i<cnt;i++)g.enemies.push(mk((Math.random()-.5)*50,(Math.random()-.5)*50));}
+  if(isSw){const cnt=5+0|Math.random()*6;for(let i=0;i<cnt;i++)g.enemies.push(mk((Math.random()-.5)*50,(Math.random()-.5)*50));}
   else g.enemies.push(mk(0,0));
 }
 
