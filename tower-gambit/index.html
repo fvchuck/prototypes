@@ -134,7 +134,7 @@ canvas{display:block;position:fixed;top:0;left:0}
 const c = document.getElementById('c');
 const ctx = c.getContext('2d');
 const HUD_TOP = 54, HUD_BOT = 70;
-let W, H, CX, CY, GY, GH, GEM_TX, GEM_TY;
+let W, H, CX, CY, GY, GH;
 let uid = 0, gs = null, raf = null, lastT = 0, betAmt = 1;
 
 function resize() {
@@ -145,10 +145,6 @@ function resize() {
   CX = W / 2;
   CY = GY + GH / 2;
   if (gs) { gs.tw.x = CX; gs.tw.y = CY; }
-  // Precompute gem arc target (XP bar on right side of top HUD)
-  const xpW = Math.min(W * 0.2, 170);
-  GEM_TX = W - 8 - xpW / 2;
-  GEM_TY = HUD_TOP * 0.38;
   checkOrientation();
 }
 
@@ -461,9 +457,10 @@ function killE(g,e){
   for(let i=0;i<Math.min(e.xp,6);i++){
     const sx=e.x+(Math.random()-.5)*24,sy=e.y+(Math.random()-.5)*24;
     const delay=i*0.06,dur=0.55+Math.random()*0.2;
-    const cx=(sx+GEM_TX)/2+(sy-GEM_TY)*0.3;
-    const cy=Math.min(sy,GEM_TY)-60-Math.random()*40;
-    g.gems.push({x0:sx,y0:sy,cx,cy,t:-delay,dur,v:e.xp/Math.min(e.xp,6)});
+    const tx=g.tw.x,ty=g.tw.y;
+    const cx=(sx+tx)/2+(sy-ty)*0.3;
+    const cy=Math.min(sy,ty)-60-Math.random()*40;
+    g.gems.push({x0:sx,y0:sy,cx,cy,tx,ty,t:-delay,dur,v:e.xp/Math.min(e.xp,6)});
   }
   if(e.coins>0){
     const val=e.coins*(1+(g.pass.stone_mask||0)*.1);
@@ -668,8 +665,8 @@ function render(g){
   ctx.shadowColor='#44ffaa';ctx.shadowBlur=6;
   g.gems.forEach(gem=>{
     const p=Math.max(0,Math.min(gem.t/gem.dur,1));
-    const bx=(1-p)*(1-p)*gem.x0+2*(1-p)*p*gem.cx+p*p*GEM_TX;
-    const by=(1-p)*(1-p)*gem.y0+2*(1-p)*p*gem.cy+p*p*GEM_TY;
+    const bx=(1-p)*(1-p)*gem.x0+2*(1-p)*p*gem.cx+p*p*gem.tx;
+    const by=(1-p)*(1-p)*gem.y0+2*(1-p)*p*gem.cy+p*p*gem.ty;
     ctx.beginPath();ctx.arc(bx,by,4*(1-p*0.4),0,Math.PI*2);
     ctx.fillStyle=`rgba(68,255,170,${0.9-p*0.3})`;ctx.fill();
   });
@@ -812,8 +809,6 @@ function renderHUD(g){
   ctx.fillStyle='#88aadd';ctx.font=`${Math.max(7,xpH*.82)|0}px Cinzel,serif`;
   ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.fillText(`LVL ${g.lvl}`,xpX+xpW/2,xpY+xpH/2);
-  // Update gem target
-  GEM_TX=xpX+xpW/2;GEM_TY=xpY+xpH/2;
 
   // Bottom bar background
   const botY=H-HUD_BOT;
