@@ -1022,8 +1022,24 @@ function getUnitGridSize(c) {
   return 1;                        // 1x1 cell  — squad members
 }
 
-function getUnitRadius(c) {
+// Radius honors an explicit `collisionRadius` (pixels) override, otherwise it
+// tracks the creature's real on-screen sprite bounds — half of the inscribed
+// footprint of its visible pixels, so tall/skinny and wide sprites both get a
+// circle that matches the shape players actually see.
+function getDefaultCollisionRadius(c) {
+  const bbox = spriteBBox[c.id];
+  const size = getSpriteSize(c);
+  if (bbox && bbox.w > 0 && bbox.h > 0) {
+    const scale = size / Math.max(bbox.w, bbox.h);
+    return Math.min(bbox.w, bbox.h) * scale / 2;
+  }
+  // Bounds not loaded yet — fall back to the old grid-cell approximation.
   return getUnitGridSize(c) * GRID_SIZE * 0.4;
+}
+
+function getUnitRadius(c) {
+  if (typeof c.collisionRadius === 'number') return c.collisionRadius;
+  return getDefaultCollisionRadius(c);
 }
 
 // Rationalized sprite size: scales with each Pokémon's real-world height
@@ -1159,7 +1175,7 @@ const BAKED_UNIT_TUNINGS = {
   squirtle:   { spriteScale: 1.5588235294117647 },
   charmander: { spriteScale: 1.6764705882352942, unitGridSize: 1 },
   pikachu:    { spriteScale: 1.8823529411764706, unitGridSize: 1 },
-  exeggutor:  { spriteScale: 1.9705882352941178 },
+  exeggutor:  { spriteScale: 1.9705882352941178, collisionRadius: 30 },
   geodude:    { spriteScale: 2.5588235294117645 },
   graveler:   { spriteScale: 2.5588235294117645 },
   wartortle:  { spriteScale: 2.8529411764705883, unitGridSize: 2 },
@@ -1168,10 +1184,11 @@ const BAKED_UNIT_TUNINGS = {
   ivysaur:    { spriteScale: 2.9411764705882355, unitGridSize: 2 },
   kingler:    { spriteScale: 3.264705882352941, unitGridSize: 2 },
   zapdos:     { spriteScale: 3.6176470588235294 },
-  raichu:     { spriteScale: 3.911764705882353 },
+  raichu:     { spriteScale: 3.911764705882353, collisionRadius: 48, spriteOffsetX: 15, spriteOffsetY: -1 },
   blastoise:  { spriteScale: 4.029411764705882 },
-  charizard:  { spriteScale: 4.617647058823529 },
+  charizard:  { spriteScale: 4.617647058823529, collisionRadius: 66, spriteOffsetX: 15 },
   venusaur:   { spriteScale: 4.764705882352941 },
+  lugia:      { collisionRadius: 64 },
 };
 Object.keys(BAKED_UNIT_TUNINGS).forEach(id => {
   const c = CREATURES.find(x => x.id === id);
@@ -1631,7 +1648,8 @@ function drawDeployedUnits(c) {
 
 function drawUnit(c, u) {
   const r = u.radius;
-  const spriteSize = getSpriteSize(getCreature(u.creatureId));
+  const cr = getCreature(u.creatureId);
+  const spriteSize = getSpriteSize(cr);
   const info = getSpriteRenderInfo(u.creatureId, spriteSize);
   const contentH = info ? info.contentH : spriteSize;
   // Ground-anchor the sprite on the bottom edge of its grid footprint so
@@ -1639,7 +1657,11 @@ function drawUnit(c, u) {
   // Unit Editor preview rather than floating at the footprint's center.
   const footprintBottom = u.y + u.unitGridSize * GRID_SIZE / 2;
   const flyLift = u.isFlying ? r * 0.9 : 0;
-  const drawY = footprintBottom - flyLift - contentH / 2;
+  // Visual-only nudge: shifts the rendered sprite without moving the unit's
+  // position, collision radius, or click hit zone.
+  const spriteOffX = cr.spriteOffsetX || 0;
+  const spriteOffY = cr.spriteOffsetY || 0;
+  const drawY = footprintBottom - flyLift - contentH / 2 + spriteOffY;
   // Shadow for flying units — sits on the ground (footprint bottom)
   if (u.isFlying) {
     c.fillStyle = 'rgba(0,0,0,0.3)';
@@ -1648,7 +1670,7 @@ function drawUnit(c, u) {
     c.fill();
   }
   if (info) {
-    c.drawImage(info.img, u.x - info.offX, drawY - info.offY, info.fullW, info.fullH);
+    c.drawImage(info.img, u.x + spriteOffX - info.offX, drawY - info.offY, info.fullW, info.fullH);
   } else {
     // Fallback circle
     c.beginPath();
@@ -1721,13 +1743,15 @@ function drawHoverPreview(c) {
     const ugs = getUnitGridSize(cr);
     const flyLift = cr.isFlying ? getUnitRadius(cr) * 0.9 : 0;
     c.globalAlpha = 0.5;
+    const spriteOffX = cr.spriteOffsetX || 0;
+    const spriteOffY = cr.spriteOffsetY || 0;
     positions.forEach(p => {
       // Match drawUnit: anchor the sprite to the footprint bottom so preview
       // sits on the grid exactly where the deployed unit will.
       const footprintBottom = p.y + ugs * GRID_SIZE / 2;
-      const drawY = footprintBottom - flyLift - contentH / 2;
+      const drawY = footprintBottom - flyLift - contentH / 2 + spriteOffY;
       if (info) {
-        c.drawImage(info.img, p.x - info.offX, drawY - info.offY, info.fullW, info.fullH);
+        c.drawImage(info.img, p.x + spriteOffX - info.offX, drawY - info.offY, info.fullW, info.fullH);
       } else {
         c.beginPath();
         c.arc(p.x, drawY, spriteSize / 2, 0, Math.PI * 2);
@@ -2776,12 +2800,14 @@ const SE_ATTACK_BOOL_FIELDS = [
 ];
 
 // Draw a creature onto ctx anchored so its visible feet sit on groundY.
-function seDrawCreatureOnGround(ctx, creatureId, size, x, groundY) {
+// offsetX/offsetY nudge only the sprite pixels — grid footprint / collision
+// circle stay where the caller drew them.
+function seDrawCreatureOnGround(ctx, creatureId, size, x, groundY, offsetX, offsetY) {
   const info = getSpriteRenderInfo(creatureId, size);
   if (!info) return;
-  const contentCenterY = groundY - info.contentH / 2;
+  const contentCenterY = groundY - info.contentH / 2 + (offsetY || 0);
   ctx.drawImage(info.img,
-    x - info.offX,
+    x + (offsetX || 0) - info.offX,
     contentCenterY - info.offY,
     info.fullW, info.fullH);
 }
@@ -2842,9 +2868,23 @@ function renderUnitEditorDetail() {
   if (!c) return;
   const currentSize = getSpriteSize(c);
   const currentUgs = getUnitGridSize(c);
+  const currentRadius = getUnitRadius(c);
+  const currentOffX = c.spriteOffsetX || 0;
+  const currentOffY = c.spriteOffsetY || 0;
   const defaults = CREATURE_DEFAULTS[c.id];
   const defaultSize = Math.round(getSpriteScale({ ...defaults, spriteScale: undefined }) * SPRITE_BASELINE_PX);
   const defaultUgs = getUnitGridSize({ ...defaults, unitGridSize: undefined });
+  // Auto-radius for the current slider-derived sprite size (not defaults) —
+  // recomputed live whenever size or ugs changes.
+  const autoRadiusFor = (size) => {
+    const bbox = spriteBBox[c.id];
+    if (bbox && bbox.w > 0 && bbox.h > 0) {
+      const scale = size / Math.max(bbox.w, bbox.h);
+      return Math.min(bbox.w, bbox.h) * scale / 2;
+    }
+    return getUnitGridSize(c) * GRID_SIZE * 0.4;
+  };
+  const initialAutoRadius = autoRadiusFor(currentSize);
   root.classList.remove('empty');
   const realH = POKEDEX_HEIGHT_M[c.id];
   root.innerHTML = `
@@ -2874,6 +2914,29 @@ function renderUnitEditorDetail() {
         <div class="se-field" style="font-size:0.75em;color:#888;margin-top:-2px">
           <label></label>
           <span>default ${defaultUgs}×${defaultUgs} (${defaultUgs * GRID_SIZE}px)</span>
+        </div>
+        <div class="se-field">
+          <label>Collision radius</label>
+          <input type="range" id="se-radius" min="2" max="200" step="1" value="${Math.round(currentRadius)}">
+          <span class="se-val" id="se-radius-val">${Math.round(currentRadius)}px</span>
+        </div>
+        <div class="se-field" style="font-size:0.75em;color:#888;margin-top:-2px">
+          <label></label>
+          <span id="se-radius-default">auto ${Math.round(initialAutoRadius)}px (from sprite bounds)</span>
+        </div>
+        <div class="se-field">
+          <label>Sprite offset X</label>
+          <input type="range" id="se-offx" min="-80" max="80" step="1" value="${Math.round(currentOffX)}">
+          <span class="se-val" id="se-offx-val">${Math.round(currentOffX)}px</span>
+        </div>
+        <div class="se-field">
+          <label>Sprite offset Y</label>
+          <input type="range" id="se-offy" min="-80" max="80" step="1" value="${Math.round(currentOffY)}">
+          <span class="se-val" id="se-offy-val">${Math.round(currentOffY)}px</span>
+        </div>
+        <div class="se-field" style="font-size:0.75em;color:#888;margin-top:-2px">
+          <label></label>
+          <span>visual nudge only — doesn't move collision or footprint</span>
         </div>
         <div class="se-subsection-title">Stats</div>
         ${SE_STAT_FIELDS.map(f => `
@@ -2906,30 +2969,69 @@ function renderUnitEditorDetail() {
     </div>
   `;
 
-  drawUnitEditorPreview(c, currentSize, currentUgs);
+  drawUnitEditorPreview(c, currentSize, currentUgs, currentRadius, currentOffX, currentOffY);
 
   // Live sliders — preview-only, do not persist until Save
   const sizeInput = document.getElementById('se-size');
   const ugsInput = document.getElementById('se-ugs');
+  const radiusInput = document.getElementById('se-radius');
+  const offxInput = document.getElementById('se-offx');
+  const offyInput = document.getElementById('se-offy');
+  const radiusDefaultLabel = document.getElementById('se-radius-default');
+  // Track whether the user has manually touched the radius slider this session —
+  // if not, size/ugs changes drag the radius along with their auto value so the
+  // preview circle stays glued to the sprite bounds by default.
+  let radiusUserTouched = Math.abs(currentRadius - initialAutoRadius) >= 1;
   const readPreview = () => ({
     size: Number(sizeInput.value),
     ugs: Number(ugsInput.value),
+    radius: Number(radiusInput.value),
+    offx: Number(offxInput.value),
+    offy: Number(offyInput.value),
   });
+  const redraw = () => {
+    const p = readPreview();
+    drawUnitEditorPreview(c, p.size, p.ugs, p.radius, p.offx, p.offy);
+  };
+  const syncAutoRadius = (size) => {
+    const auto = autoRadiusFor(size);
+    radiusDefaultLabel.textContent = 'auto ' + Math.round(auto) + 'px (from sprite bounds)';
+    if (!radiusUserTouched) {
+      radiusInput.value = String(Math.round(auto));
+      document.getElementById('se-radius-val').textContent = Math.round(auto) + 'px';
+    }
+  };
   sizeInput.addEventListener('input', () => {
     const p = readPreview();
     document.getElementById('se-size-val').textContent = p.size + 'px';
-    drawUnitEditorPreview(c, p.size, p.ugs);
+    syncAutoRadius(p.size);
+    redraw();
   });
   ugsInput.addEventListener('input', () => {
     const p = readPreview();
     document.getElementById('se-ugs-val').textContent = p.ugs + '×' + p.ugs;
-    drawUnitEditorPreview(c, p.size, p.ugs);
+    redraw();
+  });
+  radiusInput.addEventListener('input', () => {
+    radiusUserTouched = true;
+    const p = readPreview();
+    document.getElementById('se-radius-val').textContent = p.radius + 'px';
+    redraw();
+  });
+  offxInput.addEventListener('input', () => {
+    document.getElementById('se-offx-val').textContent = offxInput.value + 'px';
+    redraw();
+  });
+  offyInput.addEventListener('input', () => {
+    document.getElementById('se-offy-val').textContent = offyInput.value + 'px';
+    redraw();
   });
 
   document.getElementById('se-save').addEventListener('click', () => {
     const override = {};
     const sizeVal = Number(document.getElementById('se-size').value);
     const ugsVal = Number(document.getElementById('se-ugs').value);
+    const radiusVal = Number(document.getElementById('se-radius').value);
     const ugsDefault = getUnitGridSize({ ...defaults, unitGridSize: undefined });
     if (ugsVal !== ugsDefault) override.unitGridSize = ugsVal;
     // Compare the slider's pixel value against whatever the formula WOULD give
@@ -2940,6 +3042,17 @@ function renderUnitEditorDetail() {
     if (Math.abs(sizeVal - simulatedPx) >= 1) {
       override.spriteScale = sizeVal / SPRITE_BASELINE_PX;
     }
+    // Collision radius — compare against the auto value for the currently
+    // selected size, so that leaving the slider on its auto value (even after
+    // a size change moved it) doesn't persist a stale radius override.
+    const autoRadius = autoRadiusFor(sizeVal);
+    if (Math.abs(radiusVal - autoRadius) >= 1) {
+      override.collisionRadius = radiusVal;
+    }
+    const offxVal = Number(document.getElementById('se-offx').value);
+    const offyVal = Number(document.getElementById('se-offy').value);
+    if (offxVal !== 0) override.spriteOffsetX = offxVal;
+    if (offyVal !== 0) override.spriteOffsetY = offyVal;
     root.querySelectorAll('input[type="number"][data-key]').forEach(el => {
       const key = el.dataset.key;
       if (el.value === '' || el.value == null) return;
@@ -3005,7 +3118,7 @@ function seDrawFootprint(cx, startCol, startRow, ugs, fill, stroke) {
   cx.strokeRect(x0 + 0.75, y0 + 0.75, span - 0.5, span - 0.5);
 }
 
-function drawUnitEditorPreview(c, previewSize, previewUgs) {
+function drawUnitEditorPreview(c, previewSize, previewUgs, previewRadius, previewOffX, previewOffY) {
   const cv = document.getElementById('se-preview-canvas');
   if (!cv) return;
   const cx = cv.getContext('2d');
@@ -3056,19 +3169,66 @@ function drawUnitEditorPreview(c, previewSize, previewUgs) {
   cx.lineWidth = 1;
   cx.beginPath(); cx.moveTo(0, groundY + 0.5); cx.lineTo(W, groundY + 0.5); cx.stroke();
 
-  // Sprites — ground-anchored, horizontally centered on the footprint
+  // Sprites — ground-anchored, horizontally centered on the footprint.
+  // The selected creature's sprite takes the live offsetX/offsetY nudge; the
+  // collision circle + footprint stay pinned to the grid so the nudge is
+  // visibly decoupled from the hitbox.
   const catCenterX = (catStartCol + catUgs / 2) * GRID_SIZE;
   const selCenterX = (selStartCol + selUgs / 2) * GRID_SIZE;
-  seDrawCreatureOnGround(cx, 'caterpie', catSize, catCenterX, groundY);
-  seDrawCreatureOnGround(cx, c.id, selSize, selCenterX, groundY);
+  const selOffX = previewOffX != null ? previewOffX : (c.spriteOffsetX || 0);
+  const selOffY = previewOffY != null ? previewOffY : (c.spriteOffsetY || 0);
+  seDrawCreatureOnGround(cx, 'caterpie', catSize, catCenterX, groundY, 0, 0);
+  seDrawCreatureOnGround(cx, c.id, selSize, selCenterX, groundY, selOffX, selOffY);
+
+  // Collision circles — drawn over the sprite at its visual center (the same
+  // point used for in-battle distance checks). Radius uses the live slider
+  // value for the selected creature and the auto value for the Caterpie ruler.
+  const seRadiusForPreview = (id, size) => {
+    const bbox = spriteBBox[id];
+    if (bbox && bbox.w > 0 && bbox.h > 0) {
+      const s = size / Math.max(bbox.w, bbox.h);
+      return Math.min(bbox.w, bbox.h) * s / 2;
+    }
+    return 16;
+  };
+  const seContentH = (id, size) => {
+    const bbox = spriteBBox[id];
+    if (bbox && bbox.w > 0 && bbox.h > 0) {
+      const s = size / Math.max(bbox.w, bbox.h);
+      return bbox.h * s;
+    }
+    return size;
+  };
+  const drawRadiusCircle = (x, centerY, r, stroke, fill) => {
+    cx.beginPath();
+    cx.arc(x, centerY, r, 0, Math.PI * 2);
+    cx.fillStyle = fill;
+    cx.fill();
+    cx.strokeStyle = stroke;
+    cx.lineWidth = 1.5;
+    cx.stroke();
+  };
+  const catCenterY = groundY - seContentH('caterpie', catSize) / 2;
+  const selCenterY = groundY - seContentH(c.id, selSize) / 2;
+  const catRadius = seRadiusForPreview('caterpie', catSize);
+  const selRadius = previewRadius != null ? previewRadius : getUnitRadius(c);
+  drawRadiusCircle(catCenterX, catCenterY, catRadius,
+    'rgba(76,175,80,0.95)', 'rgba(76,175,80,0.12)');
+  drawRadiusCircle(selCenterX, selCenterY, selRadius,
+    'rgba(255,120,40,0.95)', 'rgba(255,120,40,0.15)');
 
   // Labels
   cx.fillStyle = '#fff';
   cx.font = '10px sans-serif';
   cx.textAlign = 'center';
-  cx.fillText('Caterpie · ' + Math.round(catSize) + 'px · ' + catUgs + '×' + catUgs,
+  cx.fillText('Caterpie · ' + Math.round(catSize) + 'px · ' + catUgs + '×' + catUgs
+    + ' · r' + Math.round(catRadius),
     catCenterX, groundY + 14);
-  cx.fillText(c.name + ' · ' + Math.round(selSize) + 'px · ' + selUgs + '×' + selUgs,
+  const offLabel = (selOffX || selOffY)
+    ? ' · off ' + Math.round(selOffX) + ',' + Math.round(selOffY)
+    : '';
+  cx.fillText(c.name + ' · ' + Math.round(selSize) + 'px · ' + selUgs + '×' + selUgs
+    + ' · r' + Math.round(selRadius) + offLabel,
     selCenterX, groundY + 14);
 }
 
