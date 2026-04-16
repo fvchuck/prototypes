@@ -314,6 +314,332 @@ canvas { display: block; image-rendering: pixelated; }
 @keyframes vs-appear { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
 @keyframes vs-pulse { from { text-shadow: 0 0 30px rgba(255,215,0,0.6), 0 0 60px rgba(255,100,0,0.3); } to { text-shadow: 0 0 50px rgba(255,215,0,0.9), 0 0 90px rgba(255,100,0,0.5); } }
 
+/* Debug button + panel */
+#debug-btn {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 8px);
+  right: calc(env(safe-area-inset-right) + 8px);
+  z-index: 1000;
+  background: rgba(20, 20, 35, 0.85);
+  color: #888;
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 6px 10px;
+  font-size: 0.72em;
+  font-weight: bold;
+  letter-spacing: 1px;
+  border-radius: 6px;
+  cursor: pointer;
+  min-height: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+#debug-btn:hover { opacity: 1; }
+#debug-panel {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 1001;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+#debug-panel.active { display: flex; }
+.debug-panel-inner {
+  background: #1a1a2e;
+  border: 2px solid #ffd700;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 280px;
+  max-width: 420px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.debug-panel-inner h2 { margin-bottom: 4px; }
+.debug-panel-inner .debug-sub { color: #888; font-size: 0.85em; margin-bottom: 18px; text-align: center; }
+.debug-section {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,215,0,0.2);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.debug-section-title { color: #ffd700; font-weight: bold; margin-bottom: 8px; font-size: 0.95em; }
+.debug-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+.debug-toggle-label { flex: 1; font-size: 0.9em; }
+.debug-toggle-desc { color: #888; font-size: 0.75em; margin-top: 2px; }
+.debug-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: #444;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.debug-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 20px; height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.2s;
+}
+.debug-switch.on { background: #4caf50; }
+.debug-switch.on::after { left: 22px; }
+#debug-close {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  font-size: 0.95em;
+}
+.debug-tool-btn {
+  width: 100%;
+  padding: 10px;
+  font-size: 0.9em;
+  background: linear-gradient(135deg, #2a2a48, #1e1e3a);
+  color: #ffd700;
+  border: 1px solid rgba(255,215,0,0.3);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.debug-tool-btn:hover { background: linear-gradient(135deg, #3a3a58, #2e2e4a); }
+
+/* Unit editor overlay */
+#unit-editor {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 1100;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+#unit-editor.active { display: flex; }
+.se-inner {
+  background: #1a1a2e;
+  border: 2px solid #ffd700;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 820px;
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.se-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(255,215,0,0.3);
+  flex-shrink: 0;
+}
+.se-header h2 { margin: 0; font-size: 1.2em; color: #ffd700; }
+.se-header .se-header-sub { color: #888; font-size: 0.75em; margin-left: 8px; }
+.se-close-btn {
+  background: transparent; border: none; color: #ccc;
+  font-size: 1.5em; line-height: 1; padding: 4px 10px;
+  min-height: 0; cursor: pointer;
+}
+.se-close-btn:hover { color: #fff; }
+.se-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+.se-lineup {
+  padding: 12px;
+  border-bottom: 1px solid rgba(255,215,0,0.2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: flex-end;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(26,58,10,0.25), rgba(45,80,22,0.5));
+  background-size: 100% 100%;
+}
+.se-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 2px;
+  padding: 3px 4px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.se-tile:hover { background: rgba(255,215,0,0.1); }
+.se-tile.selected { border-color: #ffd700; background: rgba(255,215,0,0.18); }
+.se-tile canvas { image-rendering: pixelated; display: block; }
+.se-tile .se-name { color: #ffd700; font-size: 0.65em; text-align: center; white-space: nowrap; max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
+.se-tile .se-px { color: #9cf; font-size: 0.6em; font-variant-numeric: tabular-nums; }
+.se-tile.overridden { box-shadow: inset 0 0 0 1px rgba(255,152,0,0.6); }
+.se-tile.overridden .se-name::after { content: ' •'; color: #ff9800; }
+.se-editor {
+  padding: 14px 18px 16px;
+}
+.se-editor.empty { text-align: center; color: #888; font-size: 0.85em; padding: 20px; }
+.se-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+@media (max-width: 640px) {
+  .se-editor-grid { grid-template-columns: 1fr; }
+}
+.se-preview {
+  background: rgba(45, 80, 22, 0.35);
+  border: 1px solid rgba(255,215,0,0.2);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.se-preview h3 { margin: 0; font-size: 1.05em; color: #ffd700; }
+.se-preview .se-preview-sub { color: #9cf; font-size: 0.72em; }
+.se-preview canvas {
+  display: block;
+  image-rendering: pixelated;
+  background: rgba(0,0,0,0.25);
+  border-radius: 4px;
+  max-width: 100%;
+}
+.se-preview-caption { color: #888; font-size: 0.7em; text-align: center; }
+.se-controls {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.se-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 0.82em;
+}
+.se-field label { flex: 0 0 92px; color: #ccc; }
+.se-field input[type="number"] {
+  flex: 1;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,215,0,0.25);
+  color: #fff;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 0.88em;
+  min-width: 0;
+  min-height: 0;
+}
+.se-field input[type="range"] { flex: 1; accent-color: #ffd700; min-width: 0; }
+.se-field .se-val {
+  flex: 0 0 56px;
+  color: #ffd700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82em;
+  text-align: right;
+}
+.se-subsection-title {
+  color: #ffd700;
+  font-weight: bold;
+  font-size: 0.82em;
+  margin: 10px 0 4px;
+  border-bottom: 1px solid rgba(255,215,0,0.2);
+  padding-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.se-subsection-title:first-child { margin-top: 0; }
+.se-bool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+}
+.se-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8em;
+  padding: 2px 0;
+}
+.se-checkbox-row input[type="checkbox"] {
+  accent-color: #ffd700;
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.se-checkbox-row label { color: #ccc; cursor: pointer; }
+.se-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  grid-column: 1 / -1;
+}
+.se-buttons button {
+  flex: 1; padding: 9px; font-size: 0.9em;
+  min-height: 0;
+}
+.se-save { background: linear-gradient(135deg, #4caf50, #2e7d32); color: #fff; }
+.se-save:hover { background: linear-gradient(135deg, #5cc050, #388d3c); }
+.se-reset { background: linear-gradient(135deg, #666, #444); color: #fff; }
+.se-reset:hover { background: linear-gradient(135deg, #777, #555); }
+.se-save-status {
+  color: #4caf50;
+  font-size: 0.8em;
+  text-align: center;
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  min-height: 14px;
+}
+.se-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255,215,0,0.3);
+  background: rgba(0,0,0,0.25);
+  flex-shrink: 0;
+}
+.se-footer-status {
+  flex: 1;
+  min-width: 0;
+  color: #4caf50;
+  font-size: 0.78em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.se-footer-btn {
+  padding: 7px 14px;
+  font-size: 0.82em;
+  min-height: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+.se-footer-btn.se-export {
+  background: linear-gradient(135deg, #2a6cd0, #1e4c98);
+  color: #fff;
+}
+.se-footer-btn.se-export:hover { background: linear-gradient(135deg, #3a7ce0, #2e5ca8); }
+.se-footer-btn.se-clear {
+  background: transparent;
+  color: #f88;
+  border-color: rgba(255,150,150,0.4);
+}
+.se-footer-btn.se-clear:hover { background: rgba(255,100,100,0.1); }
+
 /* Wider screens: use desktop-ish layout */
 @media (min-width: 820px) and (min-height: 640px) and (orientation: landscape) {
   .trainer-cards, .choice-cards { flex-direction: row; max-width: none; }
@@ -325,6 +651,49 @@ canvas { display: block; image-rendering: pixelated; }
 </head>
 <body>
 <div id="app">
+
+<!-- DEBUG BUTTON + PANEL -->
+<button id="debug-btn" type="button">DEBUG</button>
+<div id="debug-panel">
+  <div class="debug-panel-inner">
+    <h2>Debug Menu</h2>
+    <div class="debug-sub">Dev-only overrides</div>
+    <div class="debug-section">
+      <div class="debug-section-title">Trainer Select</div>
+      <div class="debug-toggle">
+        <div>
+          <div class="debug-toggle-label">All trainers</div>
+          <div class="debug-toggle-desc">Show every trainer instead of 3 random ones</div>
+        </div>
+        <div id="dbg-all-trainers" class="debug-switch" data-flag="allTrainers"></div>
+      </div>
+    </div>
+    <div class="debug-section">
+      <div class="debug-section-title">Creature Tuning</div>
+      <button id="debug-open-unit-editor" class="debug-tool-btn" type="button">Open Unit Editor</button>
+    </div>
+    <button id="debug-close">Close</button>
+  </div>
+</div>
+
+<!-- UNIT EDITOR MODAL -->
+<div id="unit-editor">
+  <div class="se-inner">
+    <div class="se-header">
+      <h2>Unit Editor <span class="se-header-sub">click a unit to edit</span></h2>
+      <button id="se-close" class="se-close-btn" type="button">×</button>
+    </div>
+    <div class="se-body">
+      <div id="se-lineup" class="se-lineup"></div>
+      <div id="se-editor" class="se-editor empty">Select a creature above to edit.</div>
+    </div>
+    <div class="se-footer">
+      <div id="se-footer-status" class="se-footer-status"></div>
+      <button id="se-clear-all" class="se-footer-btn se-clear" type="button">Clear all</button>
+      <button id="se-export" class="se-footer-btn se-export" type="button">Export JSON</button>
+    </div>
+  </div>
+</div>
 
 <!-- BET SCREEN -->
 <div id="screen-bet" class="screen centered active">
@@ -454,6 +823,24 @@ canvas { display: block; image-rendering: pixelated; }
 // =====================================================================
 // DATA
 // =====================================================================
+// Real-world Pokédex heights (meters). Drives rationalized sprite sizes —
+// Weedle/Caterpie/Pidgey at 0.3 m are the baseline (smallest sprite).
+const POKEDEX_HEIGHT_M = {
+  bulbasaur:0.7,  ivysaur:1.0,   venusaur:2.0,
+  charmander:0.6, charmeleon:1.1, charizard:1.7,
+  squirtle:0.5,   wartortle:1.0,  blastoise:1.6,
+  caterpie:0.3,   metapod:0.7,    butterfree:1.1,
+  weedle:0.3,     kakuna:0.6,     beedrill:1.0,
+  pidgey:0.3,     pidgeotto:1.1,  pidgeot:1.5,
+  pikachu:0.4,    raichu:0.8,
+  krabby:0.4,     kingler:1.3,
+  geodude:0.4,    graveler:1.0,   golem:1.4,
+  gastly:1.3,     haunter:1.6,    gengar:1.5,
+  exeggcute:0.4,  exeggutor:2.0,
+  magikarp:0.9,   gyarados:6.5,
+  zapdos:1.6,     lugia:5.2,
+};
+
 const CREATURES = [
   // Tier 1 — stats synced from creatures.csv (HP & ATK raw, Speed ×3, Range ÷6)
   { id:'bulbasaur', name:'Bulbasaur', sprite:'sprites/pm0001.png', tier:1, squadSize:4, hp:2285, atk:2, atkSpeed:0.2, speed:48, range:75, targeting:'ground', isFlying:false, isGiant:false, beam:true, beamRamp:4, desc:'Solar beam squad' },
@@ -625,8 +1012,11 @@ const MELEE_RANGE = 30;
 
 function getCreature(id) { return CREATURES.find(c => c.id === id); }
 
-// How many grid cells one unit occupies (NxN)
+// How many grid cells one unit occupies (NxN). Per-creature `unitGridSize`
+// override (set via the unit editor) wins over the derived default so
+// designers can experiment with footprint sizing decoupled from isGiant/squadSize.
 function getUnitGridSize(c) {
+  if (typeof c.unitGridSize === 'number') return c.unitGridSize;
   if (c.isGiant) return 3;       // 3x3 cells — giant solo
   if (c.squadSize === 1) return 2; // 2x2 cells — normal solo
   return 1;                        // 1x1 cell  — squad members
@@ -634,6 +1024,40 @@ function getUnitGridSize(c) {
 
 function getUnitRadius(c) {
   return getUnitGridSize(c) * GRID_SIZE * 0.4;
+}
+
+// Rationalized sprite size: scales with each Pokémon's real-world height
+// (Weedle/Caterpie/Pidgey at 0.3 m = baseline 34 px), compressed with a
+// square-root so extreme sizes (Gyarados 6.5 m) don't blow past the field.
+// Role caps keep squads from overlapping into mush and give solos/giants
+// the screen presence they deserve regardless of their literal height.
+const SPRITE_BASELINE_HEIGHT_M = 0.3;
+const SPRITE_BASELINE_PX = GRID_SIZE * 0.85; // 34 px — old ugs=1 sprite size
+
+function getSpriteScale(c) {
+  if (typeof c.spriteScale === 'number') return c.spriteScale; // manual override
+  const h = POKEDEX_HEIGHT_M[c.id] || SPRITE_BASELINE_HEIGHT_M;
+  const compressed = Math.sqrt(h / SPRITE_BASELINE_HEIGHT_M);
+  const ugs = getUnitGridSize(c);
+  if (ugs === 1) {
+    // Squad member — cap tightens as squad grows (less room per unit in formation)
+    const cap = c.squadSize <= 3 ? 1.8
+              : c.squadSize <= 6 ? 1.55
+              : c.squadSize <= 12 ? 1.3
+              : 1.15;
+    return Math.min(compressed, cap);
+  }
+  if (ugs === 2) {
+    // Solo hero — floor so tiny solos (Pikachu) still read chunky and stay
+    // visibly bigger than capped squad members, cap for 2x2 cell footprint
+    return Math.max(2.0, Math.min(compressed * 1.35, 3.05));
+  }
+  // Giant boss — floor so smallest giant still dominates solos, cap for screen fit
+  return Math.max(3.0, Math.min(compressed * 1.3, 5.5));
+}
+
+function getSpriteSize(c) {
+  return getSpriteScale(c) * SPRITE_BASELINE_PX;
 }
 
 function getSizeCategory(c) {
@@ -707,7 +1131,80 @@ const G = {
   enemyTrainer: null,
   enemyCreatureIds: [],     // accumulated creature IDs across rounds
   initialEnemyUnits: [],    // snapshot for reset between rounds
+  // Debug flags (persisted to localStorage)
+  debug: loadDebugFlags(),
 };
+
+function loadDebugFlags() {
+  try {
+    const raw = localStorage.getItem('cb_debug');
+    if (raw) return { allTrainers: false, ...JSON.parse(raw) };
+  } catch (e) {}
+  return { allTrainers: false };
+}
+function saveDebugFlags() {
+  try { localStorage.setItem('cb_debug', JSON.stringify(G.debug)); } catch (e) {}
+}
+
+// =====================================================================
+// CREATURE OVERRIDES (persisted — driven by the unit editor debug tool)
+// =====================================================================
+// Baked-in tunings produced by the Unit Editor. Folded into CREATURES
+// BEFORE the defaults snapshot so these become the new shipping defaults —
+// "Reset to Default" in the editor restores to these values, not to the
+// formula-derived originals. Any further user overrides in localStorage
+// layer on top as usual.
+const BAKED_UNIT_TUNINGS = {
+  krabby:     { spriteScale: 1.3823529411764706 },
+  squirtle:   { spriteScale: 1.5588235294117647 },
+  charmander: { spriteScale: 1.6764705882352942, unitGridSize: 1 },
+  pikachu:    { spriteScale: 1.8823529411764706, unitGridSize: 1 },
+  exeggutor:  { spriteScale: 1.9705882352941178 },
+  geodude:    { spriteScale: 2.5588235294117645 },
+  graveler:   { spriteScale: 2.5588235294117645 },
+  wartortle:  { spriteScale: 2.8529411764705883, unitGridSize: 2 },
+  gengar:     { spriteScale: 2.8529411764705883 },
+  charmeleon: { spriteScale: 2.8823529411764706 },
+  ivysaur:    { spriteScale: 2.9411764705882355, unitGridSize: 2 },
+  kingler:    { spriteScale: 3.264705882352941, unitGridSize: 2 },
+  zapdos:     { spriteScale: 3.6176470588235294 },
+  raichu:     { spriteScale: 3.911764705882353 },
+  blastoise:  { spriteScale: 4.029411764705882 },
+  charizard:  { spriteScale: 4.617647058823529 },
+  venusaur:   { spriteScale: 4.764705882352941 },
+};
+Object.keys(BAKED_UNIT_TUNINGS).forEach(id => {
+  const c = CREATURES.find(x => x.id === id);
+  if (c) Object.assign(c, BAKED_UNIT_TUNINGS[id]);
+});
+
+// Snapshot shipping defaults so we can restore them on "Reset to Default".
+const CREATURE_DEFAULTS = {};
+CREATURES.forEach(c => { CREATURE_DEFAULTS[c.id] = { ...c }; });
+
+function loadCreatureOverrides() {
+  try {
+    const raw = localStorage.getItem('cb_creature_overrides');
+    if (raw) return JSON.parse(raw) || {};
+  } catch (e) {}
+  return {};
+}
+function saveCreatureOverrides(o) {
+  try { localStorage.setItem('cb_creature_overrides', JSON.stringify(o)); } catch (e) {}
+}
+const creatureOverrides = loadCreatureOverrides();
+
+function applyCreatureOverrides() {
+  CREATURES.forEach(c => {
+    const base = CREATURE_DEFAULTS[c.id];
+    // Strip any fields that were added by a previous override
+    Object.keys(c).forEach(k => { if (!(k in base)) delete c[k]; });
+    Object.assign(c, base);
+    const o = creatureOverrides[c.id];
+    if (o) Object.assign(c, o);
+  });
+}
+applyCreatureOverrides();
 
 function initGrid() {
   const cols = Math.floor(CANVAS_W / GRID_SIZE);
@@ -754,7 +1251,20 @@ function updatePayoutTable(bet) {
 function showTrainerSelect() {
   const container = document.getElementById('trainer-cards');
   container.innerHTML = '';
-  TRAINERS.forEach(t => {
+  // Default: offer 3 random trainers. Debug "all trainers" shows every trainer.
+  let offered;
+  if (G.debug.allTrainers) {
+    offered = TRAINERS;
+  } else {
+    const pool = [...TRAINERS];
+    offered = [];
+    const count = Math.min(3, pool.length);
+    for (let i = 0; i < count; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      offered.push(pool.splice(idx, 1)[0]);
+    }
+  }
+  offered.forEach(t => {
     const card = document.createElement('div');
     card.className = 'trainer-card';
     let creaturesHtml = '';
@@ -826,7 +1336,7 @@ function showReelScreen() {
   const itemH = 120;
   const targetScroll = landIdx * itemH; // land so chosen item is in view
   let elapsed = 0;
-  const duration = 3000; // ms
+  const duration = 3000 / 1.15; // ms — 15% faster than the original 3000ms
   const startTime = performance.now();
 
   function animateReel(now) {
@@ -1121,18 +1631,22 @@ function drawDeployedUnits(c) {
 
 function drawUnit(c, u) {
   const r = u.radius;
-  // Shadow for flying units
+  const spriteSize = getSpriteSize(getCreature(u.creatureId));
+  const info = getSpriteRenderInfo(u.creatureId, spriteSize);
+  const contentH = info ? info.contentH : spriteSize;
+  // Ground-anchor the sprite on the bottom edge of its grid footprint so
+  // squat and tall creatures all rest on the same grid line — matches the
+  // Unit Editor preview rather than floating at the footprint's center.
+  const footprintBottom = u.y + u.unitGridSize * GRID_SIZE / 2;
+  const flyLift = u.isFlying ? r * 0.9 : 0;
+  const drawY = footprintBottom - flyLift - contentH / 2;
+  // Shadow for flying units — sits on the ground (footprint bottom)
   if (u.isFlying) {
     c.fillStyle = 'rgba(0,0,0,0.3)';
     c.beginPath();
-    c.ellipse(u.x, u.y + r * 0.8, r * 0.8, r * 0.3, 0, 0, Math.PI * 2);
+    c.ellipse(u.x, footprintBottom - 2, r * 0.8, r * 0.3, 0, 0, Math.PI * 2);
     c.fill();
   }
-  const drawY = u.isFlying ? u.y - r * 0.5 : u.y;
-  // Sprite image — scale so the sprite's visible content (not the transparent
-  // padding in the source PNG) matches spriteSize across all creatures.
-  const spriteSize = u.unitGridSize * GRID_SIZE * 0.85;
-  const info = getSpriteRenderInfo(u.creatureId, spriteSize);
   if (info) {
     c.drawImage(info.img, u.x - info.offX, drawY - info.offY, info.fullW, info.fullH);
   } else {
@@ -1150,7 +1664,6 @@ function drawUnit(c, u) {
   // HP bar / team dot — anchor to the sprite's visible content height so they
   // sit snugly against tall vs. short creatures instead of floating off the
   // top of squat sprites (e.g. Geodude) based on the square bounding box.
-  const contentH = info ? info.contentH : spriteSize;
   if (u.hp < u.maxHp) {
     const barW = Math.max(r * 2, 14);
     const barH = 3;
@@ -1202,16 +1715,22 @@ function drawHoverPreview(c) {
   // Preview sprites
   if (valid) {
     const positions = getFormationPositions(cr, gx * GRID_SIZE, gy * GRID_SIZE, GRID_SIZE);
-    const ugs = getUnitGridSize(cr);
-    const spriteSize = ugs * GRID_SIZE * 0.85;
+    const spriteSize = getSpriteSize(cr);
     const info = getSpriteRenderInfo(cr.id, spriteSize);
+    const contentH = info ? info.contentH : spriteSize;
+    const ugs = getUnitGridSize(cr);
+    const flyLift = cr.isFlying ? getUnitRadius(cr) * 0.9 : 0;
     c.globalAlpha = 0.5;
     positions.forEach(p => {
+      // Match drawUnit: anchor the sprite to the footprint bottom so preview
+      // sits on the grid exactly where the deployed unit will.
+      const footprintBottom = p.y + ugs * GRID_SIZE / 2;
+      const drawY = footprintBottom - flyLift - contentH / 2;
       if (info) {
-        c.drawImage(info.img, p.x - info.offX, p.y - info.offY, info.fullW, info.fullH);
+        c.drawImage(info.img, p.x - info.offX, drawY - info.offY, info.fullW, info.fullH);
       } else {
         c.beginPath();
-        c.arc(p.x, p.y, spriteSize / 2, 0, Math.PI * 2);
+        c.arc(p.x, drawY, spriteSize / 2, 0, Math.PI * 2);
         c.fillStyle = '#4caf50';
         c.fill();
       }
@@ -1482,7 +2001,16 @@ function updateUnit(unit, dt, enemies, allUnits) {
   if (validEnemies.length === 0) {
     if (unit.beam) { unit.beamTarget = null; unit.beamTime = 0; }
     const nearest = findNearest(unit, enemies.filter(e => e.hp > 0));
-    if (nearest && unit.speed > 0) moveToward(unit, nearest, dt);
+    if (nearest && unit.speed > 0) {
+      // On different planes (e.g. ground unit under a flying enemy) collisions
+      // won't separate them, so stop once we're close enough to avoid overlap.
+      if (unit.isFlying !== nearest.isFlying) {
+        const stopDist = unit.radius + nearest.radius + 4;
+        if (distance(unit, nearest) > stopDist) moveToward(unit, nearest, dt);
+      } else {
+        moveToward(unit, nearest, dt);
+      }
+    }
     return;
   }
 
@@ -2184,6 +2712,424 @@ document.getElementById('place-bet-btn').addEventListener('click', () => {
 
 document.getElementById('battle-btn').addEventListener('click', () => {
   startBattle();
+});
+
+// =====================================================================
+// DEBUG PANEL
+// =====================================================================
+function syncDebugSwitches() {
+  document.querySelectorAll('.debug-switch').forEach(sw => {
+    const flag = sw.dataset.flag;
+    sw.classList.toggle('on', !!G.debug[flag]);
+  });
+}
+document.getElementById('debug-btn').addEventListener('click', () => {
+  syncDebugSwitches();
+  document.getElementById('debug-panel').classList.add('active');
+});
+document.getElementById('debug-close').addEventListener('click', () => {
+  document.getElementById('debug-panel').classList.remove('active');
+});
+document.getElementById('debug-panel').addEventListener('click', e => {
+  // Click outside the inner panel closes it
+  if (e.target.id === 'debug-panel') {
+    document.getElementById('debug-panel').classList.remove('active');
+  }
+});
+document.querySelectorAll('.debug-switch').forEach(sw => {
+  sw.addEventListener('click', () => {
+    const flag = sw.dataset.flag;
+    G.debug[flag] = !G.debug[flag];
+    saveDebugFlags();
+    sw.classList.toggle('on', !!G.debug[flag]);
+    // If we're on the trainer select screen, refresh it so the toggle takes effect immediately
+    if (flag === 'allTrainers' && G.screen === 'trainer') showTrainerSelect();
+  });
+});
+
+// =====================================================================
+// UNIT EDITOR (debug tool)
+// =====================================================================
+let seSelectedId = null;
+
+const SE_STAT_FIELDS = [
+  { key: 'hp',        label: 'HP',         min: 0, max: 200000, step: 1 },
+  { key: 'atk',       label: 'Attack',     min: 0, max: 50000,  step: 1 },
+  { key: 'atkSpeed',  label: 'Atk Speed',  min: 0, max: 10,     step: 0.1 },
+  { key: 'speed',     label: 'Move Speed', min: 0, max: 100,    step: 1 },
+  { key: 'range',     label: 'Range',      min: 0, max: 500,    step: 1 },
+  { key: 'squadSize', label: 'Squad Size', min: 1, max: 32,     step: 1 },
+  { key: 'tier',      label: 'Tier',       min: 0, max: 10,     step: 0.5 },
+];
+const SE_ATTACK_NUMERIC_FIELDS = [
+  { key: 'aoeRadius',       label: 'AoE Radius',  min: 0,  max: 200,  step: 1 },
+  { key: 'numShots',        label: 'Num Shots',   min: 0,  max: 10,   step: 1 },
+  { key: 'projectileSpeed', label: 'Proj Speed',  min: 0,  max: 2000, step: 10 },
+  { key: 'beamRamp',        label: 'Beam Ramp',   min: 0,  max: 100,  step: 1 },
+];
+const SE_ATTACK_BOOL_FIELDS = [
+  { key: 'beam',         label: 'Solar Beam' },
+  { key: 'flamethrower', label: 'Flamethrower' },
+  { key: 'artillery',    label: 'Artillery' },
+  { key: 'isFlying',     label: 'Flying' },
+  { key: 'isGiant',      label: 'Giant' },
+];
+
+// Draw a creature onto ctx anchored so its visible feet sit on groundY.
+function seDrawCreatureOnGround(ctx, creatureId, size, x, groundY) {
+  const info = getSpriteRenderInfo(creatureId, size);
+  if (!info) return;
+  const contentCenterY = groundY - info.contentH / 2;
+  ctx.drawImage(info.img,
+    x - info.offX,
+    contentCenterY - info.offY,
+    info.fullW, info.fullH);
+}
+
+function renderUnitEditor() {
+  const lineup = document.getElementById('se-lineup');
+  if (!lineup) return;
+  lineup.innerHTML = '';
+  const sorted = CREATURES.slice().sort((a, b) => getSpriteSize(a) - getSpriteSize(b));
+  sorted.forEach(c => {
+    const size = getSpriteSize(c);
+    const info = getSpriteRenderInfo(c.id, size);
+    const tile = document.createElement('div');
+    tile.className = 'se-tile'
+      + (c.id === seSelectedId ? ' selected' : '')
+      + (creatureOverrides[c.id] ? ' overridden' : '');
+    const pad = 4;
+    const cvSize = Math.max(20, Math.round(size) + pad * 2);
+    const cv = document.createElement('canvas');
+    cv.width = cvSize;
+    cv.height = cvSize;
+    cv.style.width = cvSize + 'px';
+    cv.style.height = cvSize + 'px';
+    if (info) {
+      const cx2 = cv.getContext('2d');
+      cx2.drawImage(info.img,
+        cv.width / 2 - info.offX,
+        cv.height / 2 - info.offY,
+        info.fullW, info.fullH);
+    }
+    tile.appendChild(cv);
+    const name = document.createElement('div');
+    name.className = 'se-name';
+    name.textContent = c.name;
+    tile.appendChild(name);
+    const px = document.createElement('div');
+    px.className = 'se-px';
+    px.textContent = Math.round(size) + 'px';
+    tile.appendChild(px);
+    tile.addEventListener('click', () => {
+      seSelectedId = c.id;
+      renderUnitEditor();
+    });
+    lineup.appendChild(tile);
+  });
+  renderUnitEditorDetail();
+}
+
+function renderUnitEditorDetail() {
+  const root = document.getElementById('se-editor');
+  if (!root) return;
+  if (!seSelectedId) {
+    root.classList.add('empty');
+    root.innerHTML = 'Select a creature above to edit.';
+    return;
+  }
+  const c = getCreature(seSelectedId);
+  if (!c) return;
+  const currentSize = getSpriteSize(c);
+  const currentUgs = getUnitGridSize(c);
+  const defaults = CREATURE_DEFAULTS[c.id];
+  const defaultSize = Math.round(getSpriteScale({ ...defaults, spriteScale: undefined }) * SPRITE_BASELINE_PX);
+  const defaultUgs = getUnitGridSize({ ...defaults, unitGridSize: undefined });
+  root.classList.remove('empty');
+  const realH = POKEDEX_HEIGHT_M[c.id];
+  root.innerHTML = `
+    <div class="se-editor-grid">
+      <div class="se-preview">
+        <h3>${c.name}</h3>
+        <div class="se-preview-sub">${realH != null ? realH + 'm real' : 'no pokédex height'} · tier ${c.tier}</div>
+        <canvas id="se-preview-canvas" width="360" height="280"></canvas>
+        <div class="se-preview-caption">Caterpie (left) vs ${c.name} (right) — grid shows footprint</div>
+      </div>
+      <div class="se-controls">
+        <div class="se-subsection-title">Sprite &amp; Footprint</div>
+        <div class="se-field">
+          <label>Size</label>
+          <input type="range" id="se-size" min="16" max="280" step="1" value="${Math.round(currentSize)}">
+          <span class="se-val" id="se-size-val">${Math.round(currentSize)}px</span>
+        </div>
+        <div class="se-field" style="font-size:0.75em;color:#888;margin-top:-2px">
+          <label></label>
+          <span>default ${defaultSize}px</span>
+        </div>
+        <div class="se-field">
+          <label>Grid size</label>
+          <input type="range" id="se-ugs" min="1" max="5" step="1" value="${currentUgs}">
+          <span class="se-val" id="se-ugs-val">${currentUgs}×${currentUgs}</span>
+        </div>
+        <div class="se-field" style="font-size:0.75em;color:#888;margin-top:-2px">
+          <label></label>
+          <span>default ${defaultUgs}×${defaultUgs} (${defaultUgs * GRID_SIZE}px)</span>
+        </div>
+        <div class="se-subsection-title">Stats</div>
+        ${SE_STAT_FIELDS.map(f => `
+          <div class="se-field">
+            <label>${f.label}</label>
+            <input type="number" data-key="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${c[f.key] ?? ''}">
+          </div>
+        `).join('')}
+        <div class="se-subsection-title">Attacks</div>
+        <div class="se-bool-grid">
+          ${SE_ATTACK_BOOL_FIELDS.map(f => `
+            <div class="se-checkbox-row">
+              <input type="checkbox" id="se-bool-${f.key}" data-key="${f.key}" ${c[f.key] ? 'checked' : ''}>
+              <label for="se-bool-${f.key}">${f.label}</label>
+            </div>
+          `).join('')}
+        </div>
+        ${SE_ATTACK_NUMERIC_FIELDS.map(f => `
+          <div class="se-field">
+            <label>${f.label}</label>
+            <input type="number" data-key="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${c[f.key] ?? 0}">
+          </div>
+        `).join('')}
+      </div>
+      <div class="se-buttons">
+        <button class="se-reset" id="se-reset" type="button">Reset to Default</button>
+        <button class="se-save"  id="se-save"  type="button">Save Override</button>
+      </div>
+      <div id="se-save-status" class="se-save-status"></div>
+    </div>
+  `;
+
+  drawUnitEditorPreview(c, currentSize, currentUgs);
+
+  // Live sliders — preview-only, do not persist until Save
+  const sizeInput = document.getElementById('se-size');
+  const ugsInput = document.getElementById('se-ugs');
+  const readPreview = () => ({
+    size: Number(sizeInput.value),
+    ugs: Number(ugsInput.value),
+  });
+  sizeInput.addEventListener('input', () => {
+    const p = readPreview();
+    document.getElementById('se-size-val').textContent = p.size + 'px';
+    drawUnitEditorPreview(c, p.size, p.ugs);
+  });
+  ugsInput.addEventListener('input', () => {
+    const p = readPreview();
+    document.getElementById('se-ugs-val').textContent = p.ugs + '×' + p.ugs;
+    drawUnitEditorPreview(c, p.size, p.ugs);
+  });
+
+  document.getElementById('se-save').addEventListener('click', () => {
+    const override = {};
+    const sizeVal = Number(document.getElementById('se-size').value);
+    const ugsVal = Number(document.getElementById('se-ugs').value);
+    const ugsDefault = getUnitGridSize({ ...defaults, unitGridSize: undefined });
+    if (ugsVal !== ugsDefault) override.unitGridSize = ugsVal;
+    // Compare the slider's pixel value against whatever the formula WOULD give
+    // once the chosen ugs is applied — that way changing only the grid doesn't
+    // silently auto-resize the sprite into a different role's pixel bucket.
+    const simulatedScale = getSpriteScale({ ...defaults, unitGridSize: ugsVal, spriteScale: undefined });
+    const simulatedPx = simulatedScale * SPRITE_BASELINE_PX;
+    if (Math.abs(sizeVal - simulatedPx) >= 1) {
+      override.spriteScale = sizeVal / SPRITE_BASELINE_PX;
+    }
+    root.querySelectorAll('input[type="number"][data-key]').forEach(el => {
+      const key = el.dataset.key;
+      if (el.value === '' || el.value == null) return;
+      const v = Number(el.value);
+      if (isNaN(v)) return;
+      // Treat an undefined default as 0 so the user entering 0 for an unset
+      // numeric field (e.g. numShots on a creature that doesn't use it) is
+      // not persisted as a pointless override.
+      const dflt = defaults[key] == null ? 0 : defaults[key];
+      if (v !== dflt) override[key] = v;
+    });
+    root.querySelectorAll('input[type="checkbox"][data-key]').forEach(el => {
+      const key = el.dataset.key;
+      if (el.checked !== !!defaults[key]) override[key] = el.checked;
+    });
+    if (Object.keys(override).length === 0) {
+      delete creatureOverrides[c.id];
+    } else {
+      creatureOverrides[c.id] = override;
+    }
+    saveCreatureOverrides(creatureOverrides);
+    applyCreatureOverrides();
+    const msg = Object.keys(override).length
+      ? 'Saved — ' + Object.keys(override).length + ' override(s) active'
+      : 'Saved — reverted to defaults';
+    renderUnitEditor();
+    const status = document.getElementById('se-save-status');
+    if (status) status.textContent = msg;
+  });
+
+  document.getElementById('se-reset').addEventListener('click', () => {
+    delete creatureOverrides[c.id];
+    saveCreatureOverrides(creatureOverrides);
+    applyCreatureOverrides();
+    renderUnitEditor();
+  });
+}
+
+// Draw a footprint of NxN grid cells anchored at integer grid (startCol, startRow).
+// All four outer edges and internal dividers land exactly on canvas grid lines,
+// so the highlight stays aligned with the background grid no matter what.
+function seDrawFootprint(cx, startCol, startRow, ugs, fill, stroke) {
+  const x0 = startCol * GRID_SIZE;
+  const y0 = startRow * GRID_SIZE;
+  const span = ugs * GRID_SIZE;
+  cx.fillStyle = fill;
+  cx.fillRect(x0, y0, span, span);
+  cx.strokeStyle = stroke;
+  cx.lineWidth = 1;
+  // Internal cell dividers (drawn on actual grid lines)
+  for (let i = 1; i < ugs; i++) {
+    cx.beginPath();
+    cx.moveTo(x0 + i * GRID_SIZE + 0.5, y0);
+    cx.lineTo(x0 + i * GRID_SIZE + 0.5, y0 + span);
+    cx.stroke();
+    cx.beginPath();
+    cx.moveTo(x0 + 0.5, y0 + i * GRID_SIZE + 0.5);
+    cx.lineTo(x0 + span + 0.5, y0 + i * GRID_SIZE + 0.5);
+    cx.stroke();
+  }
+  // Outer border — slightly heavier so the footprint reads as a single shape
+  cx.lineWidth = 1.5;
+  cx.strokeRect(x0 + 0.75, y0 + 0.75, span - 0.5, span - 0.5);
+}
+
+function drawUnitEditorPreview(c, previewSize, previewUgs) {
+  const cv = document.getElementById('se-preview-canvas');
+  if (!cv) return;
+  const cx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  cx.clearRect(0, 0, W, H);
+  cx.fillStyle = '#2d5016';
+  cx.fillRect(0, 0, W, H);
+
+  // Faint 40 px grid lines across the whole canvas — same pitch as in-game.
+  cx.strokeStyle = 'rgba(255,255,255,0.09)';
+  cx.lineWidth = 1;
+  for (let x = 0; x <= W; x += GRID_SIZE) {
+    cx.beginPath(); cx.moveTo(x + 0.5, 0); cx.lineTo(x + 0.5, H); cx.stroke();
+  }
+  for (let y = 0; y <= H; y += GRID_SIZE) {
+    cx.beginPath(); cx.moveTo(0, y + 0.5); cx.lineTo(W, y + 0.5); cx.stroke();
+  }
+
+  // Snap the ground line to a grid row near the bottom — footprints rest on it.
+  const totalCols = Math.floor(W / GRID_SIZE);
+  const groundRow = Math.max(1, Math.round((H - 26) / GRID_SIZE));
+  const groundY = groundRow * GRID_SIZE;
+
+  // Baseline Caterpie — always shown at its shipping defaults, regardless of
+  // whether the user has overridden Caterpie itself (keeps it a stable ruler).
+  const catDef = CREATURE_DEFAULTS.caterpie || getCreature('caterpie');
+  const catUgs = getUnitGridSize({ ...catDef, unitGridSize: undefined });
+  const catSize = getSpriteScale({ ...catDef, spriteScale: undefined }) * SPRITE_BASELINE_PX;
+
+  const selSize = previewSize != null ? previewSize : getSpriteSize(c);
+  const selUgs = previewUgs != null ? previewUgs : getUnitGridSize(c);
+
+  // Place each footprint on integer grid cells so it aligns perfectly with
+  // the background grid — Caterpie left-aligned, selected right-aligned, with
+  // at least a 1-cell gap between them.
+  const catStartCol = 1;
+  const selStartCol = Math.max(catStartCol + catUgs + 1, totalCols - selUgs - 1);
+  const catStartRow = groundRow - catUgs;
+  const selStartRow = groundRow - selUgs;
+
+  seDrawFootprint(cx, catStartCol, catStartRow, catUgs,
+    'rgba(76,175,80,0.22)', 'rgba(76,175,80,0.65)');
+  seDrawFootprint(cx, selStartCol, selStartRow, selUgs,
+    'rgba(255,215,0,0.22)', 'rgba(255,215,0,0.75)');
+
+  // Ground line (a bit more prominent than the background grid)
+  cx.strokeStyle = 'rgba(255,255,255,0.5)';
+  cx.lineWidth = 1;
+  cx.beginPath(); cx.moveTo(0, groundY + 0.5); cx.lineTo(W, groundY + 0.5); cx.stroke();
+
+  // Sprites — ground-anchored, horizontally centered on the footprint
+  const catCenterX = (catStartCol + catUgs / 2) * GRID_SIZE;
+  const selCenterX = (selStartCol + selUgs / 2) * GRID_SIZE;
+  seDrawCreatureOnGround(cx, 'caterpie', catSize, catCenterX, groundY);
+  seDrawCreatureOnGround(cx, c.id, selSize, selCenterX, groundY);
+
+  // Labels
+  cx.fillStyle = '#fff';
+  cx.font = '10px sans-serif';
+  cx.textAlign = 'center';
+  cx.fillText('Caterpie · ' + Math.round(catSize) + 'px · ' + catUgs + '×' + catUgs,
+    catCenterX, groundY + 14);
+  cx.fillText(c.name + ' · ' + Math.round(selSize) + 'px · ' + selUgs + '×' + selUgs,
+    selCenterX, groundY + 14);
+}
+
+document.getElementById('debug-open-unit-editor').addEventListener('click', () => {
+  document.getElementById('debug-panel').classList.remove('active');
+  document.getElementById('unit-editor').classList.add('active');
+  renderUnitEditor();
+});
+document.getElementById('se-close').addEventListener('click', () => {
+  document.getElementById('unit-editor').classList.remove('active');
+});
+// Export all current overrides to clipboard as JSON — ready to paste into
+// BAKED_UNIT_TUNINGS to promote them to shipping defaults.
+function seShowStatus(msg, isError) {
+  const el = document.getElementById('se-footer-status');
+  if (!el) return;
+  el.style.color = isError ? '#f88' : '#4caf50';
+  el.textContent = msg;
+}
+function seCopyToClipboard(text, onOk, onErr) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(onOk, () => seFallbackCopy(text, onOk, onErr));
+  } else {
+    seFallbackCopy(text, onOk, onErr);
+  }
+}
+function seFallbackCopy(text, onOk, onErr) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
+  if (ok) onOk(); else onErr && onErr();
+}
+document.getElementById('se-export').addEventListener('click', () => {
+  const n = Object.keys(creatureOverrides).length;
+  if (n === 0) { seShowStatus('No overrides to export', true); return; }
+  const json = JSON.stringify(creatureOverrides, null, 2);
+  seCopyToClipboard(json,
+    () => seShowStatus('Copied ' + n + ' override(s) to clipboard'),
+    () => { console.log('cb_creature_overrides:', json); seShowStatus('Copy failed — JSON logged to console', true); });
+});
+document.getElementById('se-clear-all').addEventListener('click', () => {
+  const n = Object.keys(creatureOverrides).length;
+  if (n === 0) { seShowStatus('Nothing to clear', true); return; }
+  if (!confirm('Clear all ' + n + ' local override(s)? Creatures will revert to shipping defaults.')) return;
+  Object.keys(creatureOverrides).forEach(k => delete creatureOverrides[k]);
+  saveCreatureOverrides(creatureOverrides);
+  applyCreatureOverrides();
+  renderUnitEditor();
+  seShowStatus('Cleared ' + n + ' override(s)');
+});
+
+document.getElementById('unit-editor').addEventListener('click', e => {
+  if (e.target.id === 'unit-editor') {
+    document.getElementById('unit-editor').classList.remove('active');
+  }
 });
 
 // =====================================================================
