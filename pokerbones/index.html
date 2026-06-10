@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pokerbones</title>
+<style>
+  html, body, #root { margin: 0; padding: 0; min-height: 100vh; background: #0a0d0b; }
+  body { overflow-x: hidden; }
+</style>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+// ─── CARDS ───────────────────────────────────────────────
+const SUITS = ["♠", "♥", "♦", "♣"];
+const FACE = { 11: "J", 12: "Q", 13: "K", 14: "A" };
+const rName = r => FACE[r] || String(r);
+const isRed = s => s === "♥" || s === "♦";
+
+function makeDeck() {
+  const d = [];
+  let id = 0;
+  for (const s of SUITS) for (let r = 2; r <= 14; r++) d.push({ r, s, id: id++ });
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  return d;
+}
+
+// ─── HAND EVALUATION ─────────────────────────────────────
+// Row score = sum of card values (A=14) × poker multiplier.
+// Partial rows score whatever hand they currently show.
+const MULT_TABLE = [
+  ["Pair", 2], ["Two Pair", 3], ["Three of a Kind", 4], ["Straight", 6],
+  ["Flush", 7], ["Full House", 10], ["Four of a Kind", 15], ["Straight Flush", 25],
+];
+
+function evalRow(cards) {
+  const n = cards.length;
+  const sum = cards.reduce((a, c) => a + c.r, 0);
+  if (!n) return { name: "", m: 0, score: 0 };
+  const counts = {};
+  cards.forEach(c => { counts[c.r] = (counts[c.r] || 0) + 1; });
+  const cv = Object.values(counts).sort((a, b) => b - a);
+  const flush = n === 5 && cards.every(c => c.s === cards[0].s);
+  let straight = false;
+  if (n === 5 && cv[0] === 1) {
+    const rs = cards.map(c => c.r).sort((a, b) => a - b);
+    straight = rs[4] - rs[0] === 4 ||
+      (rs[0] === 2 && rs[1] === 3 && rs[2] === 4 && rs[3] === 5 && rs[4] === 14);
+  }
+  let name = "HIGH", m = 1;
+  if (straight && flush)            { name = "ST.FLUSH"; m = 25; }
+  else if (cv[0] === 4)             { name = "QUADS";    m = 15; }
+  else if (cv[0] === 3 && cv[1] === 2) { name = "FULL";  m = 10; }
+  else if (flush)                   { name = "FLUSH";    m = 7; }
+  else if (straight)                { name = "STR8";     m = 6; }
+  else if (cv[0] === 3)             { name = "TRIPS";    m = 4; }
+  else if (cv[0] === 2 && cv[1] === 2) { name = "2 PAIR"; m = 3; }
+  else if (cv[0] === 2)             { name = "PAIR";     m = 2; }
+  return { name, m, score: sum * m };
+}
+
+const boardTotal = board => board.reduce((a, row) => a + evalRow(row).score, 0);
+
+// ─── DEALER AI ───────────────────────────────────────────
+// Greedy: own score gain + damage dealt, plus draw-potential bonuses,
+// with a little noise so it isn't perfectly predictable.
+function rowPotential(row) {
+  if (row.length >= 5 || row.length < 2) return 0;
+  let b = 0;
+  const suits = {};
+  row.forEach(c => { suits[c.s] = (suits[c.s] || 0) + 1; });
+  if (Math.max(...Object.values(suits)) === row.length) b += row.length * 2.2; // flush draw alive
+  const rs = [...new Set(row.map(c => c.r))].sort((a, b2) => a - b2);
+  if (rs.length === row.length && rs[rs.length - 1] - rs[0] <= 4) b += row.length * 1.4; // straight draw alive
+  return b;
+}
+
+function aiChoose(g) {
+  const card = g.drawn;
+  let best = -1, bestVal = -Infinity;
+  for (let r = 0; r < 3; r++) {
+    if (g.boards.a[r].length >= 5) continue;
+    const myBefore = g.boards.a[r];
+    const myAfter = [...myBefore, card];
+    const oppBefore = g.boards.p[r];
+    const oppAfter = oppBefore.filter(c => c.r !== card.r);
+    let val = (evalRow(myAfter).score - evalRow(myBefore).score)
+            + (evalRow(oppBefore).score - evalRow(oppAfter).score)
+            + rowPotential(myAfter) - rowPotential(myBefore)
+            + Math.random() * 5;
+    if (val > bestVal) { bestVal = val; best = r; }
+  }
+  return best;
+}
+
+// ─── SOUND ───────────────────────────────────────────────
+let actx = null;
+function beep(freq, dur, type = "sine", gain = 0.08) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), gn = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    gn.gain.setValueAtTime(gain, actx.currentTime);
+    gn.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+    o.connect(gn); gn.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch (e) {}
+}
+const sPlace = () => beep(520, 0.08, "triangle");
+const sSmash = () => { beep(160, 0.25, "sawtooth", 0.1); beep(110, 0.3, "square", 0.06); };
+const sWin   = () => { beep(523, 0.12); setTimeout(() => beep(659, 0.12), 110); setTimeout(() => beep(784, 0.25), 220); };
+const sLose  = () => { beep(220, 0.2, "sawtooth", 0.06); setTimeout(() => beep(165, 0.35, "sawtooth", 0.06), 180); };
+
+// ─── MONEY ───────────────────────────────────────────────
+const START_BANK = 100;
+const COMMISSION = 0.05; // wins pay 19:20, ties push
+const CHIPS = [1, 5, 10, 25];
+const fmt = v => (v < 0 ? "-$" : "$") + Math.abs(+v).toFixed(2).replace(/\.00$/, "");
+
+const ROW_LETTERS = ["A", "B", "C"];
+const EMPTY_BOARDS = { p: [[], [], []], a: [[], [], []] };
+
+// ─── APP ─────────────────────────────────────────────────
+function App() {
+  const [bank, setBank] = useState(() => {
+    const v = parseFloat(localStorage.getItem("pokerbones_bank"));
+    return isFinite(v) ? v : START_BANK;
+  });
+  const [bet, setBet] = useState(10);
+  const [phase, setPhase] = useState("bet"); // bet | play | over
+  const [g, _setG] = useState(null);
+  const gRef = useRef(null);
+  const setG = ng => { gRef.current = ng; _setG(ng); };
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const setBusy2 = b => { busyRef.current = b; setBusy(b); };
+  const [result, setResult] = useState(null);
+  const [showRules, setShowRules] = useState(false);
+  const starterRef = useRef(Math.random() < 0.5 ? "p" : "a");
+  const timeouts = useRef([]);
+  const later = (fn, ms) => timeouts.current.push(setTimeout(fn, ms));
+  useEffect(() => () => timeouts.current.forEach(clearTimeout), []);
+  useEffect(() => { localStorage.setItem("pokerbones_bank", String(bank)); }, [bank]);
+
+  function deal(b) {
+    if (b < 1 || b > bank) return;
+    setBank(v => +(v - b).toFixed(2));
+    const deck = makeDeck();
+    const starter = starterRef.current;
+    starterRef.current = starter === "p" ? "a" : "p";
+    const drawn = deck.pop();
+    setG({ deck, drawn, turn: starter, boards: { p: [[], [], []], a: [[], [], []] }, dying: [], bet: b });
+    setResult(null);
+    setPhase("play");
+    setBusy2(false);
+    if (starter === "a") later(aiMove, 1200);
+  }
+
+  function aiMove() {
+    const gg = gRef.current;
+    if (!gg || !gg.drawn || gg.turn !== "a") return;
+    place("a", aiChoose(gg));
+  }
+
+  function onRowTap(row) {
+    const gg = gRef.current;
+    if (!gg || busyRef.current || gg.turn !== "p" || !gg.drawn) return;
+    if (gg.boards.p[row].length >= 5) return;
+    place("p", row);
+  }
+
+  function place(side, row) {
+    const gg = gRef.current;
+    const card = gg.drawn;
+    const opp = side === "p" ? "a" : "p";
+    const boards = { p: gg.boards.p.map(r => [...r]), a: gg.boards.a.map(r => [...r]) };
+    boards[side][row] = [...boards[side][row], { ...card }];
+    const victims = boards[opp][row].filter(c => c.r === card.r).map(c => c.id);
+    setBusy2(true);
+    sPlace();
+    setG({ ...gg, drawn: null, boards, dying: victims });
+    if (victims.length) later(sSmash, 160);
+
+    later(() => {
+      const g2 = gRef.current;
+      const nb = {
+        p: g2.boards.p.map(rw => rw.filter(c => !victims.includes(c.id))),
+        a: g2.boards.a.map(rw => rw.filter(c => !victims.includes(c.id))),
+      };
+      const full = s => nb[s].every(rw => rw.length === 5);
+      if (full("p") || full("a") || g2.deck.length === 0) { endGame(nb); return; }
+      const deck = [...g2.deck];
+      const drawn = deck.pop();
+      setG({ ...g2, boards: nb, dying: [], deck, drawn, turn: opp });
+      setBusy2(false);
+      if (opp === "a") later(aiMove, 1050);
+    }, victims.length ? 750 : 380);
+  }
+
+  function endGame(boards) {
+    const g2 = gRef.current;
+    const pT = boardTotal(boards.p), aT = boardTotal(boards.a);
+    setG({ ...g2, boards, dying: [], drawn: null });
+    later(() => {
+      const b = g2.bet;
+      let outcome, ret, profit;
+      if (pT > aT)      { outcome = "win";  ret = b * (2 - COMMISSION); profit = b * (1 - COMMISSION); }
+      else if (pT < aT) { outcome = "lose"; ret = 0;                    profit = -b; }
+      else              { outcome = "push"; ret = b;                    profit = 0; }
+      if (ret) setBank(v => +(v + ret).toFixed(2));
+      setResult({ outcome, pT, aT, profit });
+      setPhase("over");
+      setBusy2(false);
+      if (outcome === "win") sWin(); else if (outcome === "lose") sLose();
+    }, 900);
+  }
+
+  function resetBank() { setBank(START_BANK); setBet(10); }
+
+  const boards = g ? g.boards : EMPTY_BOARDS;
+  const dying = g ? g.dying : [];
+  const playerTurn = phase === "play" && g && g.turn === "p" && g.drawn && !busy;
+
+  return (
+    <div className="app">
+      <header className="top">
+        <span className="logo">POKER<em>BONES</em></span>
+        <button className="info" onClick={() => setShowRules(true)}>?</button>
+        <span className="bank">{fmt(bank)}</span>
+      </header>
+
+      <Board side="a" boards={boards} dying={dying} playerTurn={false} />
+
+      <div className="center">
+        <div className="deck">
+          <div className="deckpile" />
+          <span>{g ? g.deck.length : 52}</span>
+        </div>
+        <div className="drawzone">
+          {g && g.drawn
+            ? <CardV c={g.drawn} big />
+            : <div className="slot big" />}
+          <div className={"turnmsg" + (playerTurn ? " mine" : "")}>
+            {phase !== "play" ? "PLACE YOUR BET"
+              : playerTurn ? "YOUR DRAW — TAP A ROW"
+              : "DEALER…"}
+          </div>
+        </div>
+        <div className="pot">
+          <span>BET</span>
+          <b>{g && phase === "play" ? fmt(g.bet) : fmt(bet)}</b>
+          <span className="paynote">win +{fmt((g && phase === "play" ? g.bet : bet) * (1 - COMMISSION))}</span>
+        </div>
+      </div>
+
+      <Board side="p" boards={boards} dying={dying} playerTurn={playerTurn} onRowTap={onRowTap} />
+
+      {phase === "bet" && (
+        <div className="overlay">
+          <div className="panel">
+            <h1>POKER<em>BONES</em></h1>
+            <p className="tag">Knucklebones, but the bones are cards.</p>
+            <div className="bankline">BANKROLL <b>{fmt(bank)}</b></div>
+            {bank >= 1 ? (
+              <React.Fragment>
+                <div className="betbox">
+                  <span className="betamt">{fmt(bet)}</span>
+                  <button className="clear" onClick={() => setBet(0)}>CLEAR</button>
+                </div>
+                <div className="chips">
+                  {CHIPS.map(c => (
+                    <button key={c} className="chip" disabled={bet + c > bank}
+                      onClick={() => setBet(b => b + c)}>+{c}</button>
+                  ))}
+                </div>
+                <button className="dealbtn" disabled={bet < 1 || bet > bank}
+                  onClick={() => deal(bet)}>DEAL — {fmt(bet)}</button>
+                <p className="fine">Wins pay 19:20 (5% commission) · ties push</p>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                <p className="broke">You're busted.</p>
+                <button className="dealbtn" onClick={resetBank}>STAKE ME +{fmt(START_BANK)}</button>
+              </React.Fragment>
+            )}
+            <button className="ruleslink" onClick={() => setShowRules(true)}>HOW TO PLAY</button>
+          </div>
+        </div>
+      )}
+
+      {phase === "over" && result && (
+        <div className="overlay dim">
+          <div className={"panel result " + result.outcome}>
+            <h2>{result.outcome === "win" ? "YOU WIN" : result.outcome === "lose" ? "DEALER WINS" : "PUSH"}</h2>
+            <div className="totals">
+              <span>YOU <b>{result.pT}</b></span>
+              <span className="vs">vs</span>
+              <span>DEALER <b>{result.aT}</b></span>
+            </div>
+            <div className="profit">
+              {result.profit > 0 ? "+" : ""}{fmt(result.profit)}
+            </div>
+            <button className="dealbtn" disabled={bet < 1 || bet > bank}
+              onClick={() => deal(bet)}>REBET {fmt(bet)}</button>
+            <button className="ruleslink" onClick={() => setPhase("bet")}>CHANGE BET</button>
+          </div>
+        </div>
+      )}
+
+      {showRules && (
+        <div className="overlay dim" onClick={() => setShowRules(false)}>
+          <div className="panel rules" onClick={e => e.stopPropagation()}>
+            <h2>HOW TO PLAY</h2>
+            <p>You and the dealer share one 52-card deck and take turns. On your
+            turn, a card is drawn — tap one of your three rows to place it.</p>
+            <p><b className="gold">Destruction:</b> placing a card destroys every card of the
+            <b> same rank</b> in the dealer's matching row (A/B/C) — and the dealer
+            can do the same to you. Pairs score big, but they're a target.</p>
+            <p><b className="gold">Scoring:</b> each row = sum of card values (J 11 · Q 12 · K 13 · A 14)
+            × its poker multiplier:</p>
+            <table>
+              <tbody>
+                {MULT_TABLE.map(([n, m]) => (
+                  <tr key={n}><td>{n}</td><td>×{m}</td></tr>
+                ))}
+              </tbody>
+            </table>
+            <p>When either board fills (or the deck runs out), the higher total
+            takes the pot. Wins pay 19:20 — the house keeps 5%. Ties push.</p>
+            <button className="dealbtn" onClick={() => setShowRules(false)}>GOT IT</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Board({ side, boards, dying, playerTurn, onRowTap }) {
+  const rows = boards[side];
+  const total = boardTotal(rows.map(rw => rw.filter(c => !dying.includes(c.id))));
+  const order = side === "a" ? [2, 1, 0] : [0, 1, 2]; // mirror so row A meets row A at center
+  return (
+    <section className={"board " + side}>
+      <div className="boardhead">
+        <span>{side === "a" ? "DEALER" : "YOU"}</span>
+        <b>{total}</b>
+      </div>
+      {order.map(i => {
+        const cards = rows[i];
+        const live = cards.filter(c => !dying.includes(c.id));
+        const ev = evalRow(live);
+        const tappable = playerTurn && side === "p" && cards.length < 5;
+        const hit = cards.some(c => dying.includes(c.id));
+        return (
+          <div key={i}
+            className={"row" + (tappable ? " tappable" : "") + (hit ? " hit" : "")}
+            onClick={tappable && onRowTap ? () => onRowTap(i) : undefined}>
+            <div className="rletter">{ROW_LETTERS[i]}</div>
+            <div className="slots">
+              {[0, 1, 2, 3, 4].map(j =>
+                cards[j]
+                  ? <CardV key={cards[j].id} c={cards[j]} dying={dying.includes(cards[j].id)} />
+                  : <div key={"e" + j} className="slot" />
+              )}
+            </div>
+            <div className="rscore">
+              <b>{ev.score || 0}</b>
+              <span>{ev.name ? ev.name + " ×" + ev.m : "—"}</span>
+            </div>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function CardV({ c, big, dying }) {
+  return (
+    <div className={"cardv" + (isRed(c.s) ? " red" : "") + (big ? " big" : "") + (dying ? " dying" : "")}>
+      <span className="cr">{rName(c.r)}</span>
+      <span className="cs">{c.s}</span>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700&family=Barlow:wght@400;500;600&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #0a0d0b;
+  --felt: #112016;
+  --line: #24382c;
+  --gold: #e8b84b;
+  --text: #e8e8e8;
+  --muted: #6d7d72;
+  --redsuit: #c43c35;
+}
+
+.app {
+  max-width: 440px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Barlow', sans-serif;
+  color: var(--text);
+  padding: 0 10px env(safe-area-inset-bottom);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px 8px;
+}
+.logo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: 2px;
+  color: var(--text);
+}
+.logo em, h1 em { color: var(--gold); font-style: normal; }
+.info {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.bank {
+  margin-left: auto;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 19px;
+  color: var(--gold);
+}
+
+/* ─── BOARDS ─── */
+.board {
+  background: var(--felt);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 8px 8px;
+}
+.boardhead {
+  display: flex;
+  justify-content: space-between;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  padding: 2px 4px 6px;
+}
+.boardhead b { color: var(--text); font-size: 15px; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: border-color .15s, background .15s;
+}
+.row.tappable {
+  border-color: var(--gold);
+  background: rgba(232, 184, 75, 0.07);
+  cursor: pointer;
+  animation: rowpulse 1.2s ease-in-out infinite;
+}
+.row.hit { background: rgba(196, 60, 53, 0.22); }
+@keyframes rowpulse {
+  0%, 100% { border-color: rgba(232,184,75,.9); }
+  50% { border-color: rgba(232,184,75,.35); }
+}
+
+.rletter {
+  width: 14px;
+  text-align: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  color: var(--muted);
+}
+.slots {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+.slot {
+  aspect-ratio: 5 / 6.6;
+  border: 1px dashed #2c4434;
+  border-radius: 5px;
+  background: rgba(0,0,0,.18);
+}
+.slot.big { width: 52px; aspect-ratio: 5 / 7; }
+
+.rscore {
+  width: 62px;
+  text-align: right;
+  line-height: 1.1;
+}
+.rscore b {
+  display: block;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+}
+.rscore span {
+  font-size: 9.5px;
+  letter-spacing: .5px;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+/* ─── CARDS ─── */
+.cardv {
+  aspect-ratio: 5 / 6.6;
+  background: #f3efe2;
+  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #1d1d1f;
+  line-height: 1;
+  box-shadow: 0 2px 4px rgba(0,0,0,.45);
+  animation: pop .22s ease-out;
+}
+.cardv.red { color: var(--redsuit); }
+.cardv .cr { font-weight: 600; font-size: clamp(13px, 4vw, 17px); }
+.cardv .cs { font-size: clamp(11px, 3.4vw, 14px); margin-top: 1px; }
+.cardv.big {
+  width: 52px;
+  aspect-ratio: 5 / 7;
+  animation: pop .25s ease-out;
+}
+.cardv.big .cr { font-size: 21px; }
+.cardv.big .cs { font-size: 17px; }
+.cardv.dying { animation: smash .55s ease-in forwards; }
+
+@keyframes pop {
+  from { transform: scale(.4); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+@keyframes smash {
+  0%   { transform: scale(1) rotate(0); filter: none; }
+  30%  { transform: scale(1.12) rotate(-7deg); filter: sepia(1) saturate(4) hue-rotate(-40deg); }
+  100% { transform: scale(0) rotate(18deg); opacity: 0; filter: sepia(1) saturate(4) hue-rotate(-40deg); }
+}
+
+/* ─── CENTER STRIP ─── */
+.center {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 6px;
+  min-height: 96px;
+}
+.deck {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.deckpile {
+  width: 34px;
+  height: 46px;
+  border-radius: 5px;
+  border: 2px solid #3a5a46;
+  background: repeating-linear-gradient(45deg, #16271d 0 4px, #1d3327 4px 8px);
+  box-shadow: 2px 2px 0 #0d1710, 4px 4px 0 #0a110c;
+}
+.drawzone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.turnmsg {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  letter-spacing: 1.2px;
+  color: var(--muted);
+}
+.turnmsg.mine { color: var(--gold); animation: rowpulse 1.2s infinite; }
+.pot {
+  text-align: right;
+  font-family: 'Barlow Condensed', sans-serif;
+  line-height: 1.25;
+}
+.pot span { display: block; font-size: 10px; letter-spacing: 1px; color: var(--muted); }
+.pot b { font-size: 18px; color: var(--gold); }
+.pot .paynote { font-size: 10px; }
+
+/* ─── OVERLAYS ─── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 8, 6, .82);
+  z-index: 10;
+  padding: 16px;
+}
+.overlay.dim { backdrop-filter: blur(2px); }
+
+.panel {
+  width: 100%;
+  max-width: 340px;
+  background: #101813;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 20px;
+  text-align: center;
+}
+.panel h1 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 30px;
+  letter-spacing: 3px;
+  margin: 0;
+}
+.panel h2 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 24px;
+  letter-spacing: 2px;
+  margin: 0 0 10px;
+}
+.tag { color: var(--muted); font-size: 13px; margin: 6px 0 16px; }
+.bankline {
+  font-family: 'Barlow Condensed', sans-serif;
+  letter-spacing: 1.5px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.bankline b { color: var(--gold); font-size: 17px; margin-left: 6px; }
+
+.betbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.betamt {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 34px;
+  color: var(--gold);
+  min-width: 90px;
+}
+.clear {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.chips {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.chip {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  border: 3px dashed #caa84a;
+  background: radial-gradient(circle at 35% 30%, #2c4434, #16271d);
+  color: var(--gold);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+}
+.chip:disabled { opacity: .3; }
+
+.dealbtn {
+  display: block;
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: 9px;
+  background: var(--gold);
+  color: #1a1408;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 2px;
+  margin-top: 4px;
+}
+.dealbtn:disabled { opacity: .35; }
+.dealbtn:active { transform: translateY(1px); }
+
+.fine { color: var(--muted); font-size: 11px; margin: 10px 0 0; }
+.broke { color: var(--redsuit); font-weight: 600; margin: 14px 0; }
+.ruleslink {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  margin-top: 14px;
+  text-decoration: underline;
+}
+
+.result h2 { font-size: 30px; }
+.result.win h2 { color: var(--gold); }
+.result.lose h2 { color: var(--redsuit); }
+.totals {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.totals b { color: var(--text); font-size: 19px; margin-left: 4px; }
+.totals .vs { align-self: center; font-size: 11px; }
+.profit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  margin-bottom: 14px;
+}
+.result.win .profit { color: var(--gold); }
+.result.lose .profit { color: var(--redsuit); }
+
+.rules { text-align: left; max-height: 86dvh; overflow-y: auto; }
+.rules h2 { text-align: center; }
+.rules p { font-size: 13px; line-height: 1.5; color: #c9d2cc; margin: 0 0 10px; }
+.rules .gold { color: var(--gold); }
+.rules table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+  margin: 4px 0 12px;
+}
+.rules td { padding: 3px 6px; border-bottom: 1px solid #1b2a20; }
+.rules td:last-child { text-align: right; color: var(--gold); font-weight: 600; }
+</style>
+</body>
+</html>
