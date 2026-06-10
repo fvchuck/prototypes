@@ -34,70 +34,65 @@ function makeDeck() {
   return d;
 }
 
-// ─── HAND EVALUATION ─────────────────────────────────────
-// Row score = sum of card values (A=14) × poker multiplier.
-// Partial rows score whatever hand they currently show.
+// ─── HAND EVALUATION (3-card poker) ──────────────────────
+// Column score = sum of card values (A=14) × hand multiplier.
+// 3-card ranking: straight flush > trips > straight > flush > pair.
 const MULT_TABLE = [
-  ["Pair", 2], ["Two Pair", 3], ["Three of a Kind", 4], ["Straight", 6],
-  ["Flush", 7], ["Full House", 10], ["Four of a Kind", 15], ["Straight Flush", 25],
+  ["Pair", 2], ["Flush", 3], ["Straight", 4],
+  ["Three of a Kind", 6], ["Straight Flush", 12],
 ];
 
-function evalRow(cards) {
+function evalHand(cards) {
   const n = cards.length;
   const sum = cards.reduce((a, c) => a + c.r, 0);
   if (!n) return { name: "", m: 0, score: 0 };
   const counts = {};
   cards.forEach(c => { counts[c.r] = (counts[c.r] || 0) + 1; });
   const cv = Object.values(counts).sort((a, b) => b - a);
-  const flush = n === 5 && cards.every(c => c.s === cards[0].s);
+  const flush = n === 3 && cards.every(c => c.s === cards[0].s);
   let straight = false;
-  if (n === 5 && cv[0] === 1) {
+  if (n === 3 && cv[0] === 1) {
     const rs = cards.map(c => c.r).sort((a, b) => a - b);
-    straight = rs[4] - rs[0] === 4 ||
-      (rs[0] === 2 && rs[1] === 3 && rs[2] === 4 && rs[3] === 5 && rs[4] === 14);
+    straight = rs[2] - rs[0] === 2 || (rs[0] === 2 && rs[1] === 3 && rs[2] === 14);
   }
   let name = "HIGH", m = 1;
-  if (straight && flush)            { name = "ST.FLUSH"; m = 25; }
-  else if (cv[0] === 4)             { name = "QUADS";    m = 15; }
-  else if (cv[0] === 3 && cv[1] === 2) { name = "FULL";  m = 10; }
-  else if (flush)                   { name = "FLUSH";    m = 7; }
-  else if (straight)                { name = "STR8";     m = 6; }
-  else if (cv[0] === 3)             { name = "TRIPS";    m = 4; }
-  else if (cv[0] === 2 && cv[1] === 2) { name = "2 PAIR"; m = 3; }
-  else if (cv[0] === 2)             { name = "PAIR";     m = 2; }
+  if (straight && flush) { name = "ST.FLUSH"; m = 12; }
+  else if (cv[0] === 3)  { name = "TRIPS";    m = 6; }
+  else if (straight)     { name = "STR8";     m = 4; }
+  else if (flush)        { name = "FLUSH";    m = 3; }
+  else if (cv[0] === 2)  { name = "PAIR";     m = 2; }
   return { name, m, score: sum * m };
 }
 
-const boardTotal = board => board.reduce((a, row) => a + evalRow(row).score, 0);
+const boardTotal = board => board.reduce((a, col) => a + evalHand(col).score, 0);
 
 // ─── DEALER AI ───────────────────────────────────────────
 // Greedy: own score gain + damage dealt, plus draw-potential bonuses,
 // with a little noise so it isn't perfectly predictable.
-function rowPotential(row) {
-  if (row.length >= 5 || row.length < 2) return 0;
+function colPotential(col) {
+  if (col.length !== 2) return 0;
   let b = 0;
-  const suits = {};
-  row.forEach(c => { suits[c.s] = (suits[c.s] || 0) + 1; });
-  if (Math.max(...Object.values(suits)) === row.length) b += row.length * 2.2; // flush draw alive
-  const rs = [...new Set(row.map(c => c.r))].sort((a, b2) => a - b2);
-  if (rs.length === row.length && rs[rs.length - 1] - rs[0] <= 4) b += row.length * 1.4; // straight draw alive
+  if (col[0].s === col[1].s) b += 3.5; // flush draw alive
+  const d = Math.abs(col[0].r - col[1].r);
+  if (d > 0 && d <= 2) b += 2.5; // straight draw alive
+  else if (Math.max(col[0].r, col[1].r) === 14 && Math.min(col[0].r, col[1].r) <= 3) b += 2.5; // wheel draw
   return b;
 }
 
 function aiChoose(g) {
   const card = g.drawn;
   let best = -1, bestVal = -Infinity;
-  for (let r = 0; r < 3; r++) {
-    if (g.boards.a[r].length >= 5) continue;
-    const myBefore = g.boards.a[r];
+  for (let c = 0; c < 3; c++) {
+    if (g.boards.a[c].length >= 3) continue;
+    const myBefore = g.boards.a[c];
     const myAfter = [...myBefore, card];
-    const oppBefore = g.boards.p[r];
-    const oppAfter = oppBefore.filter(c => c.r !== card.r);
-    let val = (evalRow(myAfter).score - evalRow(myBefore).score)
-            + (evalRow(oppBefore).score - evalRow(oppAfter).score)
-            + rowPotential(myAfter) - rowPotential(myBefore)
+    const oppBefore = g.boards.p[c];
+    const oppAfter = oppBefore.filter(x => x.r !== card.r);
+    let val = (evalHand(myAfter).score - evalHand(myBefore).score)
+            + (evalHand(oppBefore).score - evalHand(oppAfter).score)
+            + colPotential(myAfter) - colPotential(myBefore)
             + Math.random() * 5;
-    if (val > bestVal) { bestVal = val; best = r; }
+    if (val > bestVal) { bestVal = val; best = c; }
   }
   return best;
 }
@@ -126,7 +121,7 @@ const COMMISSION = 0.05; // wins pay 19:20, ties push
 const CHIPS = [1, 5, 10, 25];
 const fmt = v => (v < 0 ? "-$" : "$") + Math.abs(+v).toFixed(2).replace(/\.00$/, "");
 
-const ROW_LETTERS = ["A", "B", "C"];
+const COL_LETTERS = ["A", "B", "C"];
 const EMPTY_BOARDS = { p: [[], [], []], a: [[], [], []] };
 
 // ─── APP ─────────────────────────────────────────────────
@@ -171,20 +166,20 @@ function App() {
     place("a", aiChoose(gg));
   }
 
-  function onRowTap(row) {
+  function onColTap(col) {
     const gg = gRef.current;
     if (!gg || busyRef.current || gg.turn !== "p" || !gg.drawn) return;
-    if (gg.boards.p[row].length >= 5) return;
-    place("p", row);
+    if (gg.boards.p[col].length >= 3) return;
+    place("p", col);
   }
 
-  function place(side, row) {
+  function place(side, col) {
     const gg = gRef.current;
     const card = gg.drawn;
     const opp = side === "p" ? "a" : "p";
-    const boards = { p: gg.boards.p.map(r => [...r]), a: gg.boards.a.map(r => [...r]) };
-    boards[side][row] = [...boards[side][row], { ...card }];
-    const victims = boards[opp][row].filter(c => c.r === card.r).map(c => c.id);
+    const boards = { p: gg.boards.p.map(c => [...c]), a: gg.boards.a.map(c => [...c]) };
+    boards[side][col] = [...boards[side][col], { ...card }];
+    const victims = boards[opp][col].filter(c => c.r === card.r).map(c => c.id);
     setBusy2(true);
     sPlace();
     setG({ ...gg, drawn: null, boards, dying: victims });
@@ -193,10 +188,10 @@ function App() {
     later(() => {
       const g2 = gRef.current;
       const nb = {
-        p: g2.boards.p.map(rw => rw.filter(c => !victims.includes(c.id))),
-        a: g2.boards.a.map(rw => rw.filter(c => !victims.includes(c.id))),
+        p: g2.boards.p.map(cl => cl.filter(c => !victims.includes(c.id))),
+        a: g2.boards.a.map(cl => cl.filter(c => !victims.includes(c.id))),
       };
-      const full = s => nb[s].every(rw => rw.length === 5);
+      const full = s => nb[s].every(cl => cl.length === 3);
       if (full("p") || full("a") || g2.deck.length === 0) { endGame(nb); return; }
       const deck = [...g2.deck];
       const drawn = deck.pop();
@@ -229,6 +224,7 @@ function App() {
   const boards = g ? g.boards : EMPTY_BOARDS;
   const dying = g ? g.dying : [];
   const playerTurn = phase === "play" && g && g.turn === "p" && g.drawn && !busy;
+  const live = cards => cards.filter(c => !dying.includes(c.id));
 
   return (
     <div className="app">
@@ -238,7 +234,54 @@ function App() {
         <span className="bank">{fmt(bank)}</span>
       </header>
 
-      <Board side="a" boards={boards} dying={dying} playerTurn={false} />
+      <div className="scoreline">
+        <span>DEALER</span>
+        <b>{boardTotal(boards.a.map(live))}</b>
+      </div>
+
+      <div className="field">
+        {[0, 1, 2].map(c => {
+          const aCards = boards.a[c], pCards = boards.p[c];
+          const aEv = evalHand(live(aCards)), pEv = evalHand(live(pCards));
+          const tappable = playerTurn && pCards.length < 3;
+          const aHit = aCards.some(x => dying.includes(x.id));
+          const pHit = pCards.some(x => dying.includes(x.id));
+          return (
+            <div key={c} className="col">
+              <div className="colscore">
+                <b>{aEv.score || 0}</b>
+                <span>{aEv.name ? aEv.name + " ×" + aEv.m : "—"}</span>
+              </div>
+              <div className={"half dealer" + (aHit ? " hit" : "")}>
+                {[2, 1, 0].map(j =>
+                  aCards[j]
+                    ? <CardV key={aCards[j].id} c={aCards[j]} dying={dying.includes(aCards[j].id)} />
+                    : <div key={"e" + j} className="slot" />
+                )}
+              </div>
+              <div className="colmid">{COL_LETTERS[c]}</div>
+              <div
+                className={"half mine" + (tappable ? " tappable" : "") + (pHit ? " hit" : "")}
+                onClick={tappable ? () => onColTap(c) : undefined}>
+                {[0, 1, 2].map(j =>
+                  pCards[j]
+                    ? <CardV key={pCards[j].id} c={pCards[j]} dying={dying.includes(pCards[j].id)} />
+                    : <div key={"e" + j} className="slot" />
+                )}
+              </div>
+              <div className="colscore">
+                <b>{pEv.score || 0}</b>
+                <span>{pEv.name ? pEv.name + " ×" + pEv.m : "—"}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="scoreline">
+        <span>YOU</span>
+        <b>{boardTotal(boards.p.map(live))}</b>
+      </div>
 
       <div className="center">
         <div className="deck">
@@ -251,7 +294,7 @@ function App() {
             : <div className="slot big" />}
           <div className={"turnmsg" + (playerTurn ? " mine" : "")}>
             {phase !== "play" ? "PLACE YOUR BET"
-              : playerTurn ? "YOUR DRAW — TAP A ROW"
+              : playerTurn ? "YOUR DRAW — TAP A COLUMN"
               : "DEALER…"}
           </div>
         </div>
@@ -261,8 +304,6 @@ function App() {
           <span className="paynote">win +{fmt((g && phase === "play" ? g.bet : bet) * (1 - COMMISSION))}</span>
         </div>
       </div>
-
-      <Board side="p" boards={boards} dying={dying} playerTurn={playerTurn} onRowTap={onRowTap} />
 
       {phase === "bet" && (
         <div className="overlay">
@@ -321,12 +362,13 @@ function App() {
           <div className="panel rules" onClick={e => e.stopPropagation()}>
             <h2>HOW TO PLAY</h2>
             <p>You and the dealer share one 52-card deck and take turns. On your
-            turn, a card is drawn — tap one of your three rows to place it.</p>
+            turn, a card is drawn — tap one of your three columns to place it.
+            Each column faces the dealer's column directly above it.</p>
             <p><b className="gold">Destruction:</b> placing a card destroys every card of the
-            <b> same rank</b> in the dealer's matching row (A/B/C) — and the dealer
+            <b> same rank</b> in the dealer's opposing column — and the dealer
             can do the same to you. Pairs score big, but they're a target.</p>
-            <p><b className="gold">Scoring:</b> each row = sum of card values (J 11 · Q 12 · K 13 · A 14)
-            × its poker multiplier:</p>
+            <p><b className="gold">Scoring:</b> each column = sum of card values (J 11 · Q 12 · K 13 · A 14)
+            × its 3-card poker multiplier:</p>
             <table>
               <tbody>
                 {MULT_TABLE.map(([n, m]) => (
@@ -334,52 +376,14 @@ function App() {
                 ))}
               </tbody>
             </table>
-            <p>When either board fills (or the deck runs out), the higher total
-            takes the pot. Wins pay 19:20 — the house keeps 5%. Ties push.</p>
+            <p>A-2-3 counts as a straight (ace still scores 14). When either
+            board fills (or the deck runs out), the higher total takes the pot.
+            Wins pay 19:20 — the house keeps 5%. Ties push.</p>
             <button className="dealbtn" onClick={() => setShowRules(false)}>GOT IT</button>
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-function Board({ side, boards, dying, playerTurn, onRowTap }) {
-  const rows = boards[side];
-  const total = boardTotal(rows.map(rw => rw.filter(c => !dying.includes(c.id))));
-  const order = side === "a" ? [2, 1, 0] : [0, 1, 2]; // mirror so row A meets row A at center
-  return (
-    <section className={"board " + side}>
-      <div className="boardhead">
-        <span>{side === "a" ? "DEALER" : "YOU"}</span>
-        <b>{total}</b>
-      </div>
-      {order.map(i => {
-        const cards = rows[i];
-        const live = cards.filter(c => !dying.includes(c.id));
-        const ev = evalRow(live);
-        const tappable = playerTurn && side === "p" && cards.length < 5;
-        const hit = cards.some(c => dying.includes(c.id));
-        return (
-          <div key={i}
-            className={"row" + (tappable ? " tappable" : "") + (hit ? " hit" : "")}
-            onClick={tappable && onRowTap ? () => onRowTap(i) : undefined}>
-            <div className="rletter">{ROW_LETTERS[i]}</div>
-            <div className="slots">
-              {[0, 1, 2, 3, 4].map(j =>
-                cards[j]
-                  ? <CardV key={cards[j].id} c={cards[j]} dying={dying.includes(cards[j].id)} />
-                  : <div key={"e" + j} className="slot" />
-              )}
-            </div>
-            <div className="rscore">
-              <b>{ev.score || 0}</b>
-              <span>{ev.name ? ev.name + " ×" + ev.m : "—"}</span>
-            </div>
-          </div>
-        );
-      })}
-    </section>
   );
 }
 
@@ -427,7 +431,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 2px 8px;
+  padding: 10px 2px 6px;
 }
 .logo {
   font-family: 'Barlow Condensed', sans-serif;
@@ -454,86 +458,96 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   color: var(--gold);
 }
 
-/* ─── BOARDS ─── */
-.board {
-  background: var(--felt);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 6px 8px 8px;
-}
-.boardhead {
+/* ─── FIELD: 3 opposing columns ─── */
+.scoreline {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  max-width: 320px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2px 6px;
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 13px;
   letter-spacing: 1.5px;
   color: var(--muted);
-  padding: 2px 4px 6px;
 }
-.boardhead b { color: var(--text); font-size: 15px; }
+.scoreline b { color: var(--text); font-size: 16px; }
 
-.row {
+.field {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 2px;
-  border-radius: 8px;
-  border: 1px solid transparent;
+  justify-content: center;
+  gap: 12px;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: stretch;
+}
+
+.half {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  background: var(--felt);
+  border: 1px solid var(--line);
+  border-radius: 9px;
   transition: border-color .15s, background .15s;
 }
-.row.tappable {
+.half.mine.tappable {
   border-color: var(--gold);
-  background: rgba(232, 184, 75, 0.07);
+  background: #16271b;
   cursor: pointer;
-  animation: rowpulse 1.2s ease-in-out infinite;
+  animation: colpulse 1.2s ease-in-out infinite;
 }
-.row.hit { background: rgba(196, 60, 53, 0.22); }
-@keyframes rowpulse {
+.half.hit { background: rgba(196, 60, 53, 0.22); }
+@keyframes colpulse {
   0%, 100% { border-color: rgba(232,184,75,.9); }
   50% { border-color: rgba(232,184,75,.35); }
 }
 
-.rletter {
-  width: 14px;
+.colmid {
   text-align: center;
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 12px;
+  font-size: 11px;
+  letter-spacing: 1px;
   color: var(--muted);
+  line-height: 1.2;
 }
-.slots {
-  flex: 1;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
-}
-.slot {
-  aspect-ratio: 5 / 6.6;
-  border: 1px dashed #2c4434;
-  border-radius: 5px;
-  background: rgba(0,0,0,.18);
-}
-.slot.big { width: 52px; aspect-ratio: 5 / 7; }
 
-.rscore {
-  width: 62px;
-  text-align: right;
-  line-height: 1.1;
+.colscore {
+  text-align: center;
+  line-height: 1.05;
+  min-height: 30px;
 }
-.rscore b {
+.colscore b {
   display: block;
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 17px;
 }
-.rscore span {
+.colscore span {
   font-size: 9.5px;
   letter-spacing: .5px;
   color: var(--gold);
   font-weight: 600;
 }
 
+.half .slot, .half .cardv {
+  height: clamp(52px, 8.6dvh, 74px);
+  aspect-ratio: 5 / 6.2;
+  width: auto;
+}
+.slot {
+  border: 1px dashed #2c4434;
+  border-radius: 5px;
+  background: rgba(0,0,0,.18);
+}
+.slot.big { width: 52px; height: auto; aspect-ratio: 5 / 7; }
+
 /* ─── CARDS ─── */
 .cardv {
-  aspect-ratio: 5 / 6.6;
   background: #f3efe2;
   border-radius: 5px;
   display: flex;
@@ -546,10 +560,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   animation: pop .22s ease-out;
 }
 .cardv.red { color: var(--redsuit); }
-.cardv .cr { font-weight: 600; font-size: clamp(13px, 4vw, 17px); }
-.cardv .cs { font-size: clamp(11px, 3.4vw, 14px); margin-top: 1px; }
+.cardv .cr { font-weight: 600; font-size: clamp(14px, 4.2vw, 18px); }
+.cardv .cs { font-size: clamp(12px, 3.6vw, 15px); margin-top: 1px; }
 .cardv.big {
   width: 52px;
+  height: auto;
   aspect-ratio: 5 / 7;
   animation: pop .25s ease-out;
 }
@@ -567,13 +582,14 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   100% { transform: scale(0) rotate(18deg); opacity: 0; filter: sepia(1) saturate(4) hue-rotate(-40deg); }
 }
 
-/* ─── CENTER STRIP ─── */
+/* ─── CONTROL STRIP ─── */
 .center {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 8px 6px;
-  min-height: 96px;
+  min-height: 92px;
+  margin-top: auto;
 }
 .deck {
   display: flex;
@@ -603,7 +619,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   letter-spacing: 1.2px;
   color: var(--muted);
 }
-.turnmsg.mine { color: var(--gold); animation: rowpulse 1.2s infinite; }
+.turnmsg.mine { color: var(--gold); animation: colpulse 1.2s infinite; }
 .pot {
   text-align: right;
   font-family: 'Barlow Condensed', sans-serif;
