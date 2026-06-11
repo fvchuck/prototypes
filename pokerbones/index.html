@@ -131,7 +131,10 @@ function aiChoose(g) {
       }
     }
 
-    const val = myGain + oppDmg + potW * potGain - 0.55 * vuln + Math.random() * 0.8;
+    // Deterministic: no random jitter, so the house edge stays a fixed,
+    // measurable quantity (it should come from the 5% commission, not from
+    // the dealer sometimes misplaying). Ties break to the lower column.
+    const val = myGain + oppDmg + potW * potGain - 0.55 * vuln;
     if (val > bestVal) { bestVal = val; best = c; }
   }
   return best;
