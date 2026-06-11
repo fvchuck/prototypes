@@ -111,6 +111,8 @@ function beep(freq, dur, type = "sine", gain = 0.08) {
   } catch (e) {}
 }
 const sPlace = () => beep(520, 0.08, "triangle");
+const sDraw  = () => beep(240, 0.09, "triangle", 0.05);
+const sFlip  = () => beep(660, 0.06, "triangle", 0.06);
 const sSmash = () => { beep(160, 0.25, "sawtooth", 0.1); beep(110, 0.3, "square", 0.06); };
 const sWin   = () => { beep(523, 0.12); setTimeout(() => beep(659, 0.12), 110); setTimeout(() => beep(784, 0.25), 220); };
 const sLose  = () => { beep(220, 0.2, "sawtooth", 0.06); setTimeout(() => beep(165, 0.35, "sawtooth", 0.06), 180); };
@@ -141,6 +143,7 @@ function App() {
   const [result, setResult] = useState(null);
   const [showRules, setShowRules] = useState(false);
   const starterRef = useRef(Math.random() < 0.5 ? "p" : "a");
+  const deckRef = useRef(null);
   const timeouts = useRef([]);
   const later = (fn, ms) => timeouts.current.push(setTimeout(fn, ms));
   useEffect(() => () => timeouts.current.forEach(clearTimeout), []);
@@ -285,12 +288,14 @@ function App() {
 
       <div className="center">
         <div className="deck">
-          <div className="deckpile" />
+          <div ref={deckRef}
+            className={"deckpile" + (g && g.drawn ? " drew" : "")}
+            key={g && g.drawn ? "d" + g.drawn.id : "idle"} />
           <span>{g ? g.deck.length : 52}</span>
         </div>
         <div className="drawzone">
           {g && g.drawn
-            ? <CardV c={g.drawn} big />
+            ? <DrawnCard key={g.drawn.id} c={g.drawn} deckRef={deckRef} />
             : <div className="slot big" />}
           <div className={"turnmsg" + (playerTurn ? " mine" : "")}>
             {phase !== "play" ? "PLACE YOUR BET"
@@ -383,6 +388,37 @@ function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Drawn card: slides face-down from the deck pile to the draw slot,
+// then flips over. Flight vector is measured at mount so it stays
+// correct across screen sizes.
+function DrawnCard({ c, deckRef }) {
+  const ref = useRef(null);
+  const [go, setGo] = useState(false);
+  React.useLayoutEffect(() => {
+    const el = ref.current, dk = deckRef.current;
+    if (el && dk) {
+      const d = dk.getBoundingClientRect(), s = el.getBoundingClientRect();
+      el.style.setProperty("--dx", (d.left + d.width / 2 - s.left - s.width / 2) + "px");
+      el.style.setProperty("--dy", (d.top + d.height / 2 - s.top - s.height / 2) + "px");
+    }
+    setGo(true);
+    sDraw();
+    const t = setTimeout(sFlip, 400);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div ref={ref} className={"drawfly" + (go ? " go" : "")}>
+      <div className="flipinner">
+        <div className="face back" />
+        <div className={"face front" + (isRed(c.s) ? " red" : "")}>
+          <span className="cr">{rName(c.r)}</span>
+          <span className="cs">{c.s}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -606,6 +642,67 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   border: 2px solid #3a5a46;
   background: repeating-linear-gradient(45deg, #16271d 0 4px, #1d3327 4px 8px);
   box-shadow: 2px 2px 0 #0d1710, 4px 4px 0 #0a110c;
+}
+.deckpile.drew { animation: decknudge .3s ease-out; }
+@keyframes decknudge {
+  0%   { transform: translate(0, 0) rotate(0); }
+  35%  { transform: translate(4px, -6px) rotate(3deg); }
+  100% { transform: translate(0, 0) rotate(0); }
+}
+
+/* ─── DRAW FLIGHT & FLIP ─── */
+.drawfly {
+  width: 52px;
+  aspect-ratio: 5 / 7;
+  position: relative;
+  perspective: 700px;
+  opacity: 0;
+  z-index: 5;
+}
+.drawfly.go {
+  opacity: 1;
+  animation: fly .42s cubic-bezier(.25, .8, .35, 1) both;
+}
+@keyframes fly {
+  from { transform: translate(var(--dx, -56px), var(--dy, 0px)) rotate(-12deg); }
+  70%  { transform: translate(2px, -3px) rotate(3deg); }
+  to   { transform: translate(0, 0) rotate(0deg); }
+}
+.flipinner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  animation: flipover .45s ease-in-out .4s both;
+}
+@keyframes flipover {
+  from { transform: rotateY(180deg); }
+  55%  { transform: rotateY(90deg) translateY(-9px) scale(1.1); }
+  to   { transform: rotateY(0deg) translateY(0) scale(1); }
+}
+.face {
+  position: absolute;
+  inset: 0;
+  border-radius: 5px;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, .5);
+}
+.face.front {
+  background: #f3efe2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #1d1d1f;
+  line-height: 1;
+}
+.face.front.red { color: var(--redsuit); }
+.face.front .cr { font-weight: 600; font-size: 21px; }
+.face.front .cs { font-size: 17px; margin-top: 1px; }
+.face.back {
+  background: repeating-linear-gradient(45deg, #16271d 0 4px, #1d3327 4px 8px);
+  border: 2px solid #3a5a46;
+  transform: rotateY(180deg);
 }
 .drawzone {
   flex: 1;
