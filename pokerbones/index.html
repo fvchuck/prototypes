@@ -254,6 +254,8 @@ function App() {
   const dying = g ? g.dying : [];
   const playerTurn = phase === "play" && g && g.turn === "p" && g.drawn && !busy;
   const live = cards => cards.filter(c => !dying.includes(c.id));
+  const aTotal = boardTotal(boards.a.map(live));
+  const pTotal = boardTotal(boards.p.map(live));
 
   return (
     <div className={"app" + (handFx && handFx.tier >= 4 ? " shake" : "")}>
@@ -263,14 +265,14 @@ function App() {
         <span className="bank">{fmt(bank)}</span>
       </header>
 
-      <div className="scoreline">
+      <div className={"scoreline" + (aTotal > pTotal ? " lead" : "")}>
         <span>DEALER</span>
         <div className="dealerdraw">
           {g && g.drawn && g.turn === "a"
             ? <DrawnCard key={g.drawn.id} c={g.drawn} deckRef={deckRef} small />
             : <div className="slot dsm" />}
         </div>
-        <b>{boardTotal(boards.a.map(live))}</b>
+        <b>{aTotal}</b>
       </div>
 
       <div className="field">
@@ -317,9 +319,9 @@ function App() {
         })}
       </div>
 
-      <div className="scoreline">
+      <div className={"scoreline" + (pTotal > aTotal ? " lead" : "")}>
         <span>YOU</span>
-        <b>{boardTotal(boards.p.map(live))}</b>
+        <b>{pTotal}</b>
       </div>
 
       <div className="center">
@@ -551,6 +553,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   color: var(--muted);
 }
 .scoreline b { color: var(--text); font-size: 16px; }
+.scoreline.lead span { color: var(--gold); }
+.scoreline.lead b {
+  color: var(--gold);
+  font-size: 18px;
+  text-shadow: 0 0 9px rgba(232, 184, 75, .5);
+}
 .dealerdraw { display: flex; justify-content: center; }
 .slot.dsm { width: 42px; aspect-ratio: 5 / 7; height: auto; }
 
