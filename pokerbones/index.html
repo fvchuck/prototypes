@@ -511,7 +511,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 2px 6px;
+  padding: 4px 2px;
 }
 .logo {
   font-family: 'Barlow Condensed', sans-serif;
@@ -546,7 +546,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   max-width: 320px;
   width: 100%;
   margin: 0 auto;
-  padding: 2px 6px;
+  padding: 0 6px;
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 13px;
   letter-spacing: 1.5px;
@@ -560,7 +560,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   text-shadow: 0 0 9px rgba(232, 184, 75, .5);
 }
 .dealerdraw { display: flex; justify-content: center; }
-.slot.dsm { width: 42px; aspect-ratio: 5 / 7; height: auto; }
+.slot.dsm { width: 36px; aspect-ratio: 5 / 7; height: auto; }
 
 .field {
   display: flex;
@@ -570,7 +570,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 .col {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   align-items: stretch;
 }
 
@@ -578,8 +578,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 5px;
+  gap: 3px;
+  padding: 4px;
   background: var(--felt);
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -654,14 +654,14 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 
 .colscore {
   text-align: center;
-  line-height: 1.05;
-  min-height: 30px;
+  line-height: 1;
+  min-height: 25px;
   opacity: .8;
 }
 .colscore b {
   display: block;
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 17px;
+  font-size: 16px;
 }
 .colscore.lead { opacity: 1; }
 .colscore.lead b {
@@ -676,7 +676,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 }
 
 .half .slot, .half .cardv {
-  height: clamp(52px, 8.6dvh, 74px);
+  height: clamp(38px, 7.5dvh, 72px);
   aspect-ratio: 5 / 6.2;
   width: auto;
 }
@@ -685,7 +685,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   border-radius: 5px;
   background: rgba(0,0,0,.18);
 }
-.slot.big { width: 52px; height: auto; aspect-ratio: 5 / 7; }
+.slot.big { width: 48px; height: auto; aspect-ratio: 5 / 7; }
 
 /* ─── CARDS ─── */
 .cardv {
@@ -728,8 +728,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 6px;
-  min-height: 92px;
+  padding: 4px 6px 6px;
   margin-top: auto;
 }
 .deck {
@@ -757,7 +756,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 
 /* ─── DRAW FLIGHT & FLIP ─── */
 .drawfly {
-  width: 52px;
+  width: 48px;
   aspect-ratio: 5 / 7;
   position: relative;
   perspective: 700px;
@@ -768,9 +767,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   opacity: 1;
   animation: fly var(--flyms, .42s) cubic-bezier(.25, .8, .35, 1) both;
 }
-.drawfly.sm { width: 42px; }
-.drawfly.sm .face.front .cr { font-size: 17px; }
-.drawfly.sm .face.front .cs { font-size: 14px; }
+.drawfly.sm { width: 36px; }
+.drawfly.sm .face.front .cr { font-size: 15px; }
+.drawfly.sm .face.front .cs { font-size: 12px; }
 @keyframes fly {
   from { transform: translate(var(--dx, -56px), var(--dy, 0px)) rotate(-12deg); }
   70%  { transform: translate(2px, -3px) rotate(3deg); }
@@ -805,8 +804,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   line-height: 1;
 }
 .face.front.red { color: var(--redsuit); }
-.face.front .cr { font-weight: 600; font-size: 21px; }
-.face.front .cs { font-size: 17px; margin-top: 1px; }
+.face.front .cr { font-weight: 600; font-size: 19px; }
+.face.front .cs { font-size: 15px; margin-top: 1px; }
 .face.back {
   background: repeating-linear-gradient(45deg, #16271d 0 4px, #1d3327 4px 8px);
   border: 2px solid #3a5a46;
