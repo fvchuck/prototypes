@@ -67,8 +67,10 @@ function evalHand(cards) {
 const boardTotal = board => board.reduce((a, col) => a + evalHand(col).score, 0);
 
 // ─── DEALER AI ───────────────────────────────────────────
-// Greedy: own score gain + damage dealt, plus draw-potential bonuses,
-// with a little noise so it isn't perfectly predictable.
+// Evaluates each legal column on: score it gains, opponent score it
+// destroys, live draw-potential, and — crucially — how exposed the
+// resulting column is to being smashed back. It counts the opponent's
+// remaining deck to gauge that threat, so big pairs aren't built blindly.
 function colPotential(col) {
   if (col.length !== 2) return 0;
   let b = 0;
@@ -79,8 +81,33 @@ function colPotential(col) {
   return b;
 }
 
+// Probability at least one of k target cards turns up within d draws
+// from an N-card deck (hypergeometric complement).
+function pAtLeastOne(N, k, d) {
+  if (k <= 0 || d <= 0 || N <= 0) return 0;
+  let miss = 1;
+  for (let i = 0; i < d; i++) {
+    const num = N - k - i;
+    if (num <= 0) return 1;
+    miss *= num / (N - i);
+  }
+  return 1 - miss;
+}
+
 function aiChoose(g) {
   const card = g.drawn;
+  const oppDeck = g.decks.p;
+  const N = oppDeck.length;
+  const oppRank = {};
+  oppDeck.forEach(c => { oppRank[c.r] = (oppRank[c.r] || 0) + 1; });
+  // opponent's remaining placements (turns they could aim a smash with)
+  const oppPlaced = g.boards.p.reduce((a, cl) => a + cl.length, 0);
+  const oppDraws = Math.min(N, 9 - oppPlaced);
+  // once boards are nearly full, raw score matters and draws don't.
+  let empty = 0;
+  for (let c = 0; c < 3; c++) empty += (3 - g.boards.a[c].length) + (3 - g.boards.p[c].length);
+  const potW = empty <= 6 ? 0 : 1;
+
   let best = -1, bestVal = -Infinity;
   for (let c = 0; c < 3; c++) {
     if (g.boards.a[c].length >= 3) continue;
@@ -88,10 +115,23 @@ function aiChoose(g) {
     const myAfter = [...myBefore, card];
     const oppBefore = g.boards.p[c];
     const oppAfter = oppBefore.filter(x => x.r !== card.r);
-    let val = (evalHand(myAfter).score - evalHand(myBefore).score)
-            + (evalHand(oppBefore).score - evalHand(oppAfter).score)
-            + colPotential(myAfter) - colPotential(myBefore)
-            + Math.random() * 5;
+
+    const myGain = evalHand(myAfter).score - evalHand(myBefore).score;
+    const oppDmg = evalHand(oppBefore).score - evalHand(oppAfter).score;
+    const potGain = colPotential(myAfter) - colPotential(myBefore);
+
+    // Exposure: if the opponent's opposing column still has room, how much
+    // of our column can they smash back, weighted by how likely they draw it.
+    let vuln = 0;
+    if (oppAfter.length < 3) {
+      const afterScore = evalHand(myAfter).score;
+      for (const R of new Set(myAfter.map(x => x.r))) {
+        const loss = afterScore - evalHand(myAfter.filter(x => x.r !== R)).score;
+        if (loss > 0) vuln += pAtLeastOne(N, oppRank[R] || 0, oppDraws) * loss;
+      }
+    }
+
+    const val = myGain + oppDmg + potW * potGain - 0.55 * vuln + Math.random() * 0.8;
     if (val > bestVal) { bestVal = val; best = c; }
   }
   return best;
@@ -157,8 +197,10 @@ function App() {
   const [handFx, setHandFx] = useState(null);
   const HAND_TIER = { 2: 1, 3: 2, 4: 3, 6: 4, 12: 5 };
   const [showRules, setShowRules] = useState(false);
+  const [deckView, setDeckView] = useState(null); // "p" | "a" | null
   const starterRef = useRef(Math.random() < 0.5 ? "p" : "a");
-  const deckRef = useRef(null);
+  const pDeckRef = useRef(null);
+  const aDeckRef = useRef(null);
   const timeouts = useRef([]);
   const later = (fn, ms) => timeouts.current.push(setTimeout(fn, ms));
   useEffect(() => () => timeouts.current.forEach(clearTimeout), []);
@@ -167,11 +209,11 @@ function App() {
   function deal(b) {
     if (b < 1 || b > bank) return;
     setBank(v => +(v - b).toFixed(2));
-    const deck = makeDeck();
+    const decks = { p: makeDeck(), a: makeDeck() };
     const starter = starterRef.current;
     starterRef.current = starter === "p" ? "a" : "p";
-    const drawn = deck.pop();
-    setG({ deck, drawn, turn: starter, boards: { p: [[], [], []], a: [[], [], []] }, dying: [], bet: b });
+    const drawn = decks[starter].pop();
+    setG({ decks, drawn, turn: starter, boards: { p: [[], [], []], a: [[], [], []] }, dying: [], bet: b });
     setResult(null);
     setHandFx(null);
     setPhase("play");
@@ -221,10 +263,10 @@ function App() {
         a: g2.boards.a.map(cl => cl.filter(c => !victims.includes(c.id))),
       };
       const full = s => nb[s].every(cl => cl.length === 3);
-      if (full("p") || full("a") || g2.deck.length === 0) { endGame(nb); return; }
-      const deck = [...g2.deck];
-      const drawn = deck.pop();
-      setG({ ...g2, boards: nb, dying: [], deck, drawn, turn: opp });
+      if (full("p") || full("a") || g2.decks[opp].length === 0) { endGame(nb); return; }
+      const decks = { p: [...g2.decks.p], a: [...g2.decks.a] };
+      const drawn = decks[opp].pop();
+      setG({ ...g2, boards: nb, dying: [], decks, drawn, turn: opp });
       setBusy2(false);
       if (opp === "a") later(aiMove, 1500);
     }, victims.length ? 750 : 380);
@@ -265,11 +307,17 @@ function App() {
         <span className="bank">{fmt(bank)}</span>
       </header>
 
-      <div className={"scoreline" + (aTotal > pTotal ? " lead" : "")}>
-        <span>DEALER</span>
+      <div className={"scoreline strip" + (aTotal > pTotal ? " lead" : "")}>
+        <div className="deck sm" onClick={g ? () => setDeckView("a") : undefined}>
+          <div ref={aDeckRef}
+            className={"deckpile sm" + (g && g.drawn && g.turn === "a" ? " drew" : "")}
+            key={g && g.drawn && g.turn === "a" ? "da" + g.drawn.id : "aidle"} />
+          <span>{g ? g.decks.a.length : 52}</span>
+        </div>
+        <span className="who">DEALER</span>
         <div className="dealerdraw">
           {g && g.drawn && g.turn === "a"
-            ? <DrawnCard key={g.drawn.id} c={g.drawn} deckRef={deckRef} small />
+            ? <DrawnCard key={g.drawn.id} c={g.drawn} deckRef={aDeckRef} small />
             : <div className="slot dsm" />}
         </div>
         <b>{aTotal}</b>
@@ -325,15 +373,15 @@ function App() {
       </div>
 
       <div className="center">
-        <div className="deck">
-          <div ref={deckRef}
-            className={"deckpile" + (g && g.drawn ? " drew" : "")}
-            key={g && g.drawn ? "d" + g.drawn.id : "idle"} />
-          <span>{g ? g.deck.length : 52}</span>
+        <div className="deck" onClick={g ? () => setDeckView("p") : undefined}>
+          <div ref={pDeckRef}
+            className={"deckpile" + (g && g.drawn && g.turn === "p" ? " drew" : "")}
+            key={g && g.drawn && g.turn === "p" ? "dp" + g.drawn.id : "pidle"} />
+          <span>{g ? g.decks.p.length : 52}</span>
         </div>
         <div className="drawzone">
           {g && g.drawn && g.turn === "p"
-            ? <DrawnCard key={g.drawn.id} c={g.drawn} deckRef={deckRef} />
+            ? <DrawnCard key={g.drawn.id} c={g.drawn} deckRef={pDeckRef} />
             : <div className="slot big" />}
           <div className={"turnmsg" + (playerTurn ? " mine" : "")}>
             {phase !== "play" ? "PLACE YOUR BET"
@@ -404,9 +452,10 @@ function App() {
         <div className="overlay dim" onClick={() => setShowRules(false)}>
           <div className="panel rules" onClick={e => e.stopPropagation()}>
             <h2>HOW TO PLAY</h2>
-            <p>You and the dealer share one 52-card deck and take turns. On your
-            turn, a card is drawn — tap one of your three columns to place it.
-            Each column faces the dealer's column directly above it.</p>
+            <p>You and the dealer each draw from your own 52-card deck and take
+            turns. On your turn, a card is drawn — tap one of your three columns
+            to place it. Each column faces the dealer's column directly above it.
+            Tap either deck to see the cards it has left.</p>
             <p><b className="gold">Destruction:</b> placing a card destroys every card of the
             <b> same rank</b> in the dealer's opposing column — and the dealer
             can do the same to you. Pairs score big, but they're a target.</p>
@@ -426,6 +475,44 @@ function App() {
           </div>
         </div>
       )}
+
+      {deckView && g && (
+        <div className="overlay dim" onClick={() => setDeckView(null)}>
+          <div className="panel deckbreak" onClick={e => e.stopPropagation()}>
+            <h2>{deckView === "a" ? "DEALER'S" : "YOUR"} DECK</h2>
+            <p className="bankline">{g.decks[deckView].length} CARDS REMAINING</p>
+            <DeckBreakdown cards={g.decks[deckView]} />
+            <button className="dealbtn" onClick={() => setDeckView(null)}>CLOSE</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Breakdown of cards still in a deck, one row per rank (high → low),
+// showing which suits remain and a per-rank count.
+function DeckBreakdown({ cards }) {
+  const byRank = {};
+  cards.forEach(c => { (byRank[c.r] = byRank[c.r] || []).push(c.s); });
+  const ranks = [];
+  for (let r = 14; r >= 2; r--) ranks.push(r);
+  return (
+    <div className="breakgrid">
+      {ranks.map(r => {
+        const have = byRank[r] || [];
+        return (
+          <div key={r} className="brow">
+            <span className="brank">{rName(r)}</span>
+            <span className="bsuits">
+              {SUITS.map(s => (
+                <span key={s} className={"bs" + (isRed(s) ? " red" : "") + (have.includes(s) ? "" : " gone")}>{s}</span>
+              ))}
+            </span>
+            <span className="bcount">{have.length}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -561,6 +648,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 }
 .dealerdraw { display: flex; justify-content: center; }
 .slot.dsm { width: 36px; aspect-ratio: 5 / 7; height: auto; }
+.scoreline.strip {
+  max-width: 360px;
+  gap: 10px;
+  padding: 2px 6px;
+}
+.scoreline.strip .who { flex: 1; }
 
 .field {
   display: flex;
@@ -738,6 +831,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   gap: 2px;
   color: var(--muted);
   font-size: 11px;
+  cursor: pointer;
 }
 .deckpile {
   width: 34px;
@@ -746,6 +840,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   border: 2px solid #3a5a46;
   background: repeating-linear-gradient(45deg, #16271d 0 4px, #1d3327 4px 8px);
   box-shadow: 2px 2px 0 #0d1710, 4px 4px 0 #0a110c;
+}
+.deck.sm { font-size: 10px; }
+.deckpile.sm {
+  width: 26px;
+  height: 36px;
+  box-shadow: 1px 1px 0 #0d1710, 2px 2px 0 #0a110c;
 }
 .deckpile.drew { animation: decknudge .3s ease-out; }
 @keyframes decknudge {
@@ -983,6 +1083,43 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 }
 .rules td { padding: 3px 6px; border-bottom: 1px solid #1b2a20; }
 .rules td:last-child { text-align: right; color: var(--gold); font-weight: 600; }
+
+/* ─── DECK BREAKDOWN ─── */
+.deckbreak { max-height: 88dvh; overflow-y: auto; }
+.deckbreak .bankline { margin-bottom: 14px; }
+.breakgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 14px;
+  margin-bottom: 16px;
+}
+.brow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-bottom: 1px solid #1b2a20;
+}
+.brank {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  width: 18px;
+  text-align: center;
+  color: var(--text);
+}
+.bsuits { display: flex; gap: 3px; flex: 1; }
+.bs { font-size: 14px; color: #cdd5cf; }
+.bs.red { color: var(--redsuit); }
+.bs.gone { opacity: .16; }
+.bcount {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--gold);
+  width: 14px;
+  text-align: right;
+}
 </style>
 </body>
 </html>
