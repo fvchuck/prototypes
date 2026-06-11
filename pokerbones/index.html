@@ -23,10 +23,12 @@ const FACE = { 11: "J", 12: "Q", 13: "K", 14: "A" };
 const rName = r => FACE[r] || String(r);
 const isRed = s => s === "♥" || s === "♦";
 
+// Card ids must be unique across BOTH players' decks: destruction removes
+// victims by id from both boards, so a shared id would smash your own card.
+let CARD_ID = 0;
 function makeDeck() {
   const d = [];
-  let id = 0;
-  for (const s of SUITS) for (let r = 2; r <= 14; r++) d.push({ r, s, id: id++ });
+  for (const s of SUITS) for (let r = 2; r <= 14; r++) d.push({ r, s, id: CARD_ID++ });
   for (let i = d.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [d[i], d[j]] = [d[j], d[i]];
