@@ -66,11 +66,15 @@ function evalHand(cards) {
 
 const boardTotal = board => board.reduce((a, col) => a + evalHand(col).score, 0);
 
-// ─── DEALER AI ───────────────────────────────────────────
-// Evaluates each legal column on: score it gains, opponent score it
-// destroys, live draw-potential, and — crucially — how exposed the
-// resulting column is to being smashed back. It counts the opponent's
-// remaining deck to gauge that threat, so big pairs aren't built blindly.
+// ─── DEALER AI: expectimax ───────────────────────────────
+// The dealer searches the game tree: it tries each placement, then averages
+// over every card the opponent could draw next (their real remaining deck),
+// assuming the opponent answers with its own best move, and so on to a fixed
+// depth. No randomness, so the house edge stays a fixed, measurable quantity.
+// Leaf positions are scored by the board-total difference plus a small bonus
+// for live draws, so the dealer also builds toward multipliers it can finish.
+const AI_DEPTH = 3; // plies of lookahead (each ply = one card placed)
+
 function colPotential(col) {
   if (col.length !== 2) return 0;
   let b = 0;
@@ -81,61 +85,72 @@ function colPotential(col) {
   return b;
 }
 
-// Probability at least one of k target cards turns up within d draws
-// from an N-card deck (hypergeometric complement).
-function pAtLeastOne(N, k, d) {
-  if (k <= 0 || d <= 0 || N <= 0) return 0;
-  let miss = 1;
-  for (let i = 0; i < d; i++) {
-    const num = N - k - i;
-    if (num <= 0) return 1;
-    miss *= num / (N - i);
+// Apply `card` to `boards[side][col]`, destroying same-rank cards in the
+// opponent's opposing column. Returns a fresh boards object.
+function applyPlace(boards, side, col, card) {
+  const opp = side === "a" ? "p" : "a";
+  const nb = { p: boards.p.map(c => c.slice()), a: boards.a.map(c => c.slice()) };
+  nb[side][col] = [...nb[side][col], card];
+  nb[opp][col] = nb[opp][col].filter(c => c.r !== card.r);
+  return nb;
+}
+
+const boardFull = (boards, side) => boards[side].every(c => c.length === 3);
+
+// Value of a position from the dealer's ("a") perspective: positive = good
+// for the dealer.
+function leafEval(boards) {
+  let aS = 0, pS = 0, aP = 0, pP = 0;
+  for (let c = 0; c < 3; c++) {
+    aS += evalHand(boards.a[c]).score; pS += evalHand(boards.p[c]).score;
+    aP += colPotential(boards.a[c]);   pP += colPotential(boards.p[c]);
   }
-  return 1 - miss;
+  return (aS - pS) + 0.6 * (aP - pP);
+}
+
+// `side` has drawn `card` and must place it; search `depth` plies. Dealer
+// maximises, opponent minimises, draws are chance nodes averaged uniformly
+// over the drawing side's remaining deck.
+function searchPlace(boards, decks, side, card, depth) {
+  const opp = side === "a" ? "p" : "a";
+  let best = side === "a" ? -Infinity : Infinity, any = false;
+  for (let col = 0; col < 3; col++) {
+    if (boards[side][col].length >= 3) continue;
+    any = true;
+    const nb = applyPlace(boards, side, col, card);
+    let v;
+    if (depth <= 1 || boardFull(nb, "a") || boardFull(nb, "p")) {
+      v = leafEval(nb);
+    } else {
+      const od = decks[opp];
+      if (!od.length) { v = leafEval(nb); }
+      else {
+        let sum = 0;
+        for (const dc of od) sum += searchPlace(nb, decks, opp, dc, depth - 1);
+        v = sum / od.length;
+      }
+    }
+    if (side === "a") { if (v > best) best = v; }
+    else { if (v < best) best = v; }
+  }
+  return any ? best : leafEval(boards);
 }
 
 function aiChoose(g) {
-  const card = g.drawn;
-  const oppDeck = g.decks.p;
-  const N = oppDeck.length;
-  const oppRank = {};
-  oppDeck.forEach(c => { oppRank[c.r] = (oppRank[c.r] || 0) + 1; });
-  // opponent's remaining placements (turns they could aim a smash with)
-  const oppPlaced = g.boards.p.reduce((a, cl) => a + cl.length, 0);
-  const oppDraws = Math.min(N, 9 - oppPlaced);
-  // once boards are nearly full, raw score matters and draws don't.
-  let empty = 0;
-  for (let c = 0; c < 3; c++) empty += (3 - g.boards.a[c].length) + (3 - g.boards.p[c].length);
-  const potW = empty <= 6 ? 0 : 1;
-
+  const { drawn: card, boards, decks } = g;
   let best = -1, bestVal = -Infinity;
-  for (let c = 0; c < 3; c++) {
-    if (g.boards.a[c].length >= 3) continue;
-    const myBefore = g.boards.a[c];
-    const myAfter = [...myBefore, card];
-    const oppBefore = g.boards.p[c];
-    const oppAfter = oppBefore.filter(x => x.r !== card.r);
-
-    const myGain = evalHand(myAfter).score - evalHand(myBefore).score;
-    const oppDmg = evalHand(oppBefore).score - evalHand(oppAfter).score;
-    const potGain = colPotential(myAfter) - colPotential(myBefore);
-
-    // Exposure: if the opponent's opposing column still has room, how much
-    // of our column can they smash back, weighted by how likely they draw it.
-    let vuln = 0;
-    if (oppAfter.length < 3) {
-      const afterScore = evalHand(myAfter).score;
-      for (const R of new Set(myAfter.map(x => x.r))) {
-        const loss = afterScore - evalHand(myAfter.filter(x => x.r !== R)).score;
-        if (loss > 0) vuln += pAtLeastOne(N, oppRank[R] || 0, oppDraws) * loss;
-      }
+  for (let col = 0; col < 3; col++) {
+    if (boards.a[col].length >= 3) continue;
+    const nb = applyPlace(boards, "a", col, card);
+    let v;
+    if (AI_DEPTH <= 1 || boardFull(nb, "a") || boardFull(nb, "p") || !decks.p.length) {
+      v = leafEval(nb);
+    } else {
+      let sum = 0;
+      for (const dc of decks.p) sum += searchPlace(nb, decks, "p", dc, AI_DEPTH - 1);
+      v = sum / decks.p.length;
     }
-
-    // Deterministic: no random jitter, so the house edge stays a fixed,
-    // measurable quantity (it should come from the 5% commission, not from
-    // the dealer sometimes misplaying). Ties break to the lower column.
-    const val = myGain + oppDmg + potW * potGain - 0.55 * vuln;
-    if (val > bestVal) { bestVal = val; best = c; }
+    if (v > bestVal) { bestVal = v; best = col; } // ties break to lower column
   }
   return best;
 }
