@@ -73,8 +73,10 @@ const boardTotal = board => board.reduce((a, col) => a + evalHand(col).score, 0)
 // over every card the opponent could draw next (their real remaining deck),
 // assuming the opponent answers with its own best move, and so on to a fixed
 // depth. No randomness, so the house edge stays a fixed, measurable quantity.
-// Leaf positions are scored by the board-total difference plus a small bonus
-// for live draws, so the dealer also builds toward multipliers it can finish.
+// Leaf positions are scored by a phase-aware evaluation (see leafEval): early
+// game it rewards live draws toward multipliers, late game it penalises exposed
+// stacks the opponent can still smash. No randomness, so the house edge stays a
+// fixed, measurable quantity.
 const AI_DEPTH = 3; // plies of lookahead (each ply = one card placed)
 
 function colPotential(col) {
@@ -99,15 +101,38 @@ function applyPlace(boards, side, col, card) {
 
 const boardFull = (boards, side) => boards[side].every(c => c.length === 3);
 
-// Value of a position from the dealer's ("a") perspective: positive = good
-// for the dealer.
+// Value lost if the opponent smashes a column's most damaging duplicate rank —
+// i.e. how much exposed multiplier value sits in that column.
+function smashRisk(col) {
+  if (col.length < 2) return 0;
+  const base = evalHand(col).score, cnt = {};
+  col.forEach(c => { cnt[c.r] = (cnt[c.r] || 0) + 1; });
+  let worst = 0;
+  for (const r in cnt) {
+    const loss = base - evalHand(col.filter(c => +c.r !== +r)).score;
+    if (loss > worst) worst = loss;
+  }
+  return worst;
+}
+
+// Value of a position from the dealer's ("a") perspective: positive = good for
+// the dealer. Phase-aware: early game rewards live draw potential; late game
+// penalises exposed multiplier value the opponent can still smash. A card sitting
+// opposite a FULL column is safe (can't be matched), so it incurs no risk.
 function leafEval(boards) {
-  let aS = 0, pS = 0, aP = 0, pP = 0;
+  let aS = 0, pS = 0, aP = 0, pP = 0, filled = 0;
   for (let c = 0; c < 3; c++) {
     aS += evalHand(boards.a[c]).score; pS += evalHand(boards.p[c]).score;
     aP += colPotential(boards.a[c]);   pP += colPotential(boards.p[c]);
+    filled += boards.a[c].length + boards.p[c].length;
   }
-  return (aS - pS) + 0.6 * (aP - pP);
+  const prog = filled / 18; // 0 (empty) → 1 (both boards full)
+  let aExp = 0, pExp = 0;
+  for (let c = 0; c < 3; c++) {
+    if (boards.p[c].length < 3) aExp += smashRisk(boards.a[c]);
+    if (boards.a[c].length < 3) pExp += smashRisk(boards.p[c]);
+  }
+  return (aS - pS) + (1 - prog) * 0.6 * (aP - pP) - prog * 0.4 * (aExp - pExp);
 }
 
 // `side` has drawn `card` and must place it; search `depth` plies. Dealer
