@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Meadowbank</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 29,9.5 29,24.5 16,30 3,24.5 3,9.5' fill='%2392c463' stroke='%234a3526' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23ffce4f'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="board"></div>
+<div id="choice-dim" class="hidden"></div>
+<div id="callouts"></div>
+<div id="choice-pins"></div>
+<div id="float-layer"></div>
+<div id="choice-banner" class="hidden"><span id="choice-banner-text">Tap your move</span></div>
+
+<!-- top HUD -->
+<header id="hud">
+  <div class="hud-cell"><span class="hud-label">💰 Bet</span><span class="hud-value" id="hud-bet">$1.00</span></div>
+  <div class="hud-cell banked"><span class="hud-label">🏛 Banked</span><span class="hud-value green" id="hud-banked">$0.00</span></div>
+  <div class="hud-cell atrisk"><span class="hud-label">⚠ At Risk</span><span class="hud-value orange" id="hud-atrisk">$0.00</span></div>
+  <div class="hud-cell"><span class="hud-label">⬢ Tiles Left</span><span class="hud-value" id="hud-tiles">16</span></div>
+</header>
+<div id="wallet-pill">Wallet <b id="wallet">$20.00</b></div>
+<button id="mute-btn" title="Mute">🔊</button>
+
+<!-- placement preview -->
+<div id="preview-panel" class="hidden"></div>
+
+<!-- bottom tray -->
+<footer id="tray">
+  <div class="tray-group">
+    <div class="tray-label">Now Placing</div>
+    <canvas id="cur-tile" width="92" height="92"></canvas>
+  </div>
+  <div class="tray-group">
+    <div class="tray-label">Up Next</div>
+    <div class="prev-row">
+      <canvas id="prev-1" width="64" height="64"></canvas>
+      <canvas id="prev-2" width="64" height="64"></canvas>
+    </div>
+  </div>
+  <div class="tray-group grow">
+    <button id="turbo-btn" class="toggle-btn">⏩ Turbo</button>
+    <div class="tray-btn-row">
+      <button id="rules-btn" class="mini-btn wide">Rules</button>
+    </div>
+  </div>
+</footer>
+
+<div id="toast"></div>
+
+<!-- start modal -->
+<div id="start-modal" class="modal">
+  <div class="card">
+    <h1 class="logo">Meadow<span>bank</span></h1>
+    <p class="tagline">Place cozy tiles. Complete sections. Bank real winnings —<br/>or greed for the golden castle.</p>
+    <div class="rules-mini">
+      <div>🌲 Complete forests, ponds, villages &amp; roads to <b class="green">bank cash</b></div>
+      <div>⚠ Unfinished sections pay <b class="orange">$0</b> when tiles run out</div>
+      <div>👑 Draw a castle tile, then its rare twin, to win the <b class="gold">50× jackpot</b></div>
+    </div>
+    <div id="bet-picker">
+      <span class="bet-label">Your bet</span>
+      <div class="bet-chips">
+        <button class="bet-chip active" data-bet="1">$1</button>
+        <button class="bet-chip" data-bet="5">$5</button>
+        <button class="bet-chip" data-bet="10">$10</button>
+      </div>
+    </div>
+    <button id="play-btn">PLAY — $1.00</button>
+    <div id="start-sub" class="sub"></div>
+  </div>
+</div>
+
+<!-- end modal -->
+<div id="end-modal" class="modal hidden">
+  <div class="card">
+    <h2 id="end-title">Run Complete</h2>
+    <div id="end-nearmiss" class="nearmiss hidden">👑 SO CLOSE — the castle was <b>ONE GATE</b> from the $50.00 jackpot!</div>
+    <div id="end-lines"></div>
+    <div id="end-summary"></div>
+    <div class="btn-row">
+      <button id="again-btn">Play Again</button>
+      <button id="view-btn" class="ghost-btn">View Board</button>
+      <button id="collect-btn" class="ghost-btn">Collect</button>
+    </div>
+  </div>
+</div>
+
+<!-- buy-more-tiles offer -->
+<div id="buy-modal" class="modal hidden">
+  <div class="card buy-card">
+    <div class="buy-spark" id="buy-spark">⚡</div>
+    <h2 id="buy-title">So close!</h2>
+    <p id="buy-sub" class="buy-sub"></p>
+    <div id="buy-odds" class="buy-odds"></div>
+    <button id="buy-btn" class="buy-go"></button>
+    <button id="buy-skip" class="ghost-btn">No thanks — collect</button>
+    <div id="buy-fine" class="buy-fine"></div>
+  </div>
+</div>
+
+<!-- rules modal -->
+<div id="rules-modal" class="modal hidden">
+  <div class="card left">
+    <h2>How to play</h2>
+    <ul>
+      <li>Tiles <b>place themselves</b> — sit back and watch the village grow.</li>
+      <li>When a tile has a real choice, it <b>glows in 2-3 spots</b>. <b>Tap the one you want</b> — bank a section now, grow it bigger, or start something new.</li>
+      <li>A section <b>completes when no edge faces empty land</b> — then it pays into <b class="green">Banked</b>, permanently. Bigger sections pay much more, but must finish before tiles run out or they pay <b class="orange">$0</b>.</li>
+      <li>The <b class="gold">golden castle</b> is rare. A castle tile starts it; only a <b>second castle tile</b> seals it for <b class="gold">50× your bet</b>.</li>
+      <li>End one tile short? <b>Buy extra draws</b> to chase the finish. <b>⏩ Turbo</b> speeds everything up.</li>
+    </ul>
+    <button id="rules-close">Got it</button>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
