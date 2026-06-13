@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Faro Stonks</title>
+<style>
+  html, body, #root { margin: 0; padding: 0; min-height: 100vh; background: #0b0d12; }
+  body { overflow-x: hidden; font-family: "Segoe UI", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  @keyframes flipIn { 0% { transform: rotateY(90deg); } 100% { transform: rotateY(0deg); } }
+  @keyframes popIn { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+  @keyframes floatUp { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-34px); opacity: 0; } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-4px)} 40%{transform:translateX(4px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(3px)} }
+  @keyframes goldGlow { 0%,100% { box-shadow: 0 0 6px 1px rgba(232,181,77,0.5); } 50% { box-shadow: 0 0 16px 4px rgba(232,181,77,0.9); } }
+  /* ── win celebration ── */
+  @keyframes winCard { 0%{transform:scale(1);box-shadow:0 0 6px 1px rgba(232,181,77,0.5);} 22%{transform:scale(1.20);box-shadow:0 0 26px 7px rgba(232,181,77,1);} 48%{transform:scale(1.04);box-shadow:0 0 14px 3px rgba(232,181,77,0.75);} 72%{transform:scale(1.13);box-shadow:0 0 22px 6px rgba(232,181,77,0.95);} 100%{transform:scale(1);box-shadow:0 0 6px 1px rgba(232,181,77,0.5);} }
+  @keyframes winFlash { 0%{opacity:0;} 12%{opacity:1;} 100%{opacity:0;} }
+  @keyframes winNumber { 0%{transform:translateY(14px) scale(0.2);opacity:0;} 16%{transform:translateY(0) scale(1.28);opacity:1;} 30%{transform:scale(0.94);} 44%{transform:scale(1.1);} 58%{transform:scale(1);} 80%{transform:translateY(0) scale(1);opacity:1;} 100%{transform:translateY(-72px) scale(0.9);opacity:0;} }
+  @keyframes confettiBurst { 0%{transform:translate(0,0) scale(0.4) rotate(0);opacity:0;} 10%{opacity:1;} 100%{transform:translate(var(--dx),var(--dy)) scale(0.85) rotate(var(--rot));opacity:0;} }
+  @keyframes ringPulse { 0%{transform:scale(0.2);opacity:0.9;} 100%{transform:scale(2.8);opacity:0;} }
+  @keyframes cashPop { 0%{transform:scale(1);} 40%{transform:scale(1.32);text-shadow:0 0 14px rgba(232,181,77,0.95);} 100%{transform:scale(1);text-shadow:none;} }
+  @keyframes timerPing { 0%{transform:scale(1) translateX(0);} 28%{transform:scale(1.42) translateX(-3px);} 56%{transform:scale(1.18) translateX(3px);} 80%{transform:scale(1.3) translateX(-2px);} 100%{transform:scale(1) translateX(0);} }
+</style>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect, useMemo, useCallback } = React;
+
+// ═══════════════════════════════════════════════════════════════
+// ENGINE — pure logic, mirrors tools/sim.mjs (validated to 96.5%
+// target RTP, no entry strategy exceeds ~98.4%)
+// ═══════════════════════════════════════════════════════════════
+const CFG = {
+  ROUNDS: 15,          // trading day length: 2 cards flip per round = 30 cards; ~10 die behind the bell
+  DECK: 40,            // 40 of 52 cards dealt; the other 12 are burned at the open
+  TARGET_RTP: 0.965,
+  SALVAGE: 0.25,       // refund for positions still open at the bell — the expiry risk that makes thin ranks longshots
+  SPREAD: 0.93,        // sell value = continuation EV x spread
+  PAYOUT_CAP: 12,
+  TIMER_SEC: 30,
+};
+const C2 = n => (n * (n - 1)) / 2;
+const _probMemo = new Map();
+// {W: P(boom-only win), D: P(doublet), L: P(bust), X: P(expire at close)}
+function outcomeProbs(k, N, R) {
+  const key = k * 10000 + N * 100 + R;
+  if (_probMemo.has(key)) return _probMemo.get(key);
+  let res;
+  if (R <= 0 || N < 2 || k <= 0) res = { W: 0, D: 0, L: 0, X: 1 };
+  else {
+    const tot = C2(N);
+    const pD = k >= 2 ? C2(k) / tot : 0;
+    const pOne = (k * (N - k)) / tot;
+    const pNone = C2(N - k) / tot;
+    const nx = outcomeProbs(k, N - 2, R - 1);
+    res = { W: pOne / 2 + pNone * nx.W, D: pD + pNone * nx.D,
+            L: pOne / 2 + pNone * nx.L, X: pNone * nx.X };
+  }
+  _probMemo.set(key, res);
+  return res;
+}
+function basePayout(k, N, R) {
+  const { W, D, X } = outcomeProbs(k, N, R);
+  if (W <= 0) return 0;
+  const p = (CFG.TARGET_RTP - D * 0.5 - X * CFG.SALVAGE) / W;
+  return Math.min(CFG.PAYOUT_CAP, Math.max(1.05, p));
+}
+function demandMult(heat) {
+  if (heat >= 5) return 0.85;   // Crowded
+  if (heat >= 2) return 0.93;   // Hot
+  if (heat <= -2) return 1.02;  // Cold
+  return 1.0;
+}
+function demandState(heat) {
+  if (heat >= 5) return { name: 'Crowded', color: '#ff8a3d' };
+  if (heat >= 2) return { name: 'Hot', color: '#ff5b5b' };
+  if (heat <= -2) return { name: 'Cold', color: '#5bc8ff' };
+  return { name: 'Normal', color: '#9aa3b2' };
+}
+const volState = k => ['Delisted', 'Longshot', 'Thin', 'Moving', 'Active'][k] || 'Active';
+function buyPayout(k, N, R, heat) {
+  return Math.min(CFG.PAYOUT_CAP, basePayout(k, N, R) * demandMult(heat));
+}
+function sellDemandMult(heat) { return Math.max(0.82, Math.min(1.20, 1 + heat * 0.035)); }
+function continuationEV(k, N, R, locked) {
+  const { W, D, X } = outcomeProbs(k, N, R);
+  return W * locked + D * 0.5 + X * CFG.SALVAGE;
+}
+function sellValuePerStake(k, N, R, locked, heat) {
+  return continuationEV(k, N, R, locked) * CFG.SPREAD * sellDemandMult(heat);
+}
+function blend(pos, stake, payout) {
+  if (!pos) return { stake, payout };
+  const t = pos.stake + stake;
+  return { stake: t, payout: (pos.stake * pos.payout + stake * payout) / t };
+}
+const boomPct = (k, N) => k > 0 ? (k * (N - k)) / (N * (N - 1)) : 0;       // boom-only this round
+const doubletPct = (k, N) => k >= 2 ? (k * (k - 1)) / (N * (N - 1)) : 0;
+
+// ─── ranks (just the card glyph — no thematic labels) ───
+const RANKS = [
+  { id: 0,  glyph: 'A'  },
+  { id: 1,  glyph: 'K'  },
+  { id: 2,  glyph: 'Q'  },
+  { id: 3,  glyph: 'J'  },
+  { id: 4,  glyph: '10' },
+  { id: 5,  glyph: '9'  },
+  { id: 6,  glyph: '8'  },
+  { id: 7,  glyph: '7'  },
+  { id: 8,  glyph: '6'  },
+  { id: 9,  glyph: '5'  },
+  { id: 10, glyph: '4'  },
+  { id: 11, glyph: '3'  },
+  { id: 12, glyph: '2'  },
+];
+
+// ─── table: 10–20 lightweight bot seats ───
+const TABLE_SIZE = 14;
+const BOT_EMOJIS = ['🦊','🐉','🐋','🐢','🦅','🐍','🦌','🐺','🦁','🐯','🦈','🐙','🦏','🐃','🦓','🐂','🦬','🐗','🦒','🐅'];
+const BOTS = Array.from({ length: TABLE_SIZE }, (_, i) => ({
+  id: 'b' + i,
+  emoji: BOT_EMOJIS[i % BOT_EMOJIS.length],
+  momentum: Math.random() < 0.6 ? 1 : -1,            // chases heat vs. fades it
+  aggressive: 0.25 + Math.random() * 0.55,           // how often it trades
+  stakePref: [10, 25, 50][Math.floor(Math.random() * 3)],
+}));
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function newDay(day, bankrolls) {
+  // deal a 40-card shoe from the 52; the other 12 are burned at the open,
+  // so each rank opens with its TRUE remaining count (0–4), not a flat 4.
+  const shoe = shuffle(Array.from({ length: 52 }, (_, i) => i % 13)).slice(0, CFG.DECK);
+  const k = Array(13).fill(0);
+  for (const r of shoe) k[r] += 1;
+  // which suits of each rank survived the burn — purely cosmetic, lets the
+  // faro reveal show real cards from the full deck without affecting odds.
+  const suitsLeft = k.map(cnt => shuffle([0, 1, 2, 3]).slice(0, cnt));
+  return {
+    day,
+    round: 1,
+    shoe,
+    shoeIdx: 0,
+    suitsLeft,
+    k,
+    N: CFG.DECK,
+    heat: Array(13).fill(0),
+    lastBust: null, lastBoom: null,
+    players: Object.fromEntries(['you', ...BOTS.map(b => b.id)].map(id => [
+      id, { bankroll: bankrolls?.[id] ?? 1000, pos: {}, bear: null,
+            dayWagered: 0, dayReturned: 0 },
+    ])),
+    bankruptLastRound: false,
+  };
+}
+const roundsLeft = g => CFG.ROUNDS - g.round + 1;
+
+// Bot decisions — simple, readable: each seat either chases heat or fades it.
+// Returns { buys:[{rank,stake}], sells:[rank], bear:null }.
+function botDecide(bot, g) {
+  const me = g.players[bot.id];
+  const live = RANKS.filter(r => g.k[r.id] > 0);
+  const held = Object.keys(me.pos).map(Number);
+  const buys = [], sells = [];
+  // buy: pick from the ranks its style favours (warm if momentum, cold if contrarian)
+  if (live.length && Math.random() < bot.aggressive && me.bankroll >= bot.stakePref) {
+    const ranked = [...live].sort((a, b) => bot.momentum * (g.heat[b.id] - g.heat[a.id]));
+    const pick = ranked[Math.floor(Math.random() * Math.min(3, ranked.length))];
+    if (pick) buys.push({ rank: pick.id, stake: bot.stakePref });
+  }
+  // sell: momentum dumps coldness, contrarian sells into heat
+  held.forEach(id => {
+    if (bot.momentum > 0 && g.heat[id] <= -1 && Math.random() < 0.4) sells.push(id);
+    else if (bot.momentum < 0 && g.heat[id] >= 2 && Math.random() < 0.5) sells.push(id);
+  });
+  return { buys, sells, bear: null };
+}
+
+// Resolve a full round. Returns {steps, final}. Steps carry display
+// snapshots; `final` is committed after playback.
+function resolveRound(g, allOrders) {
+  const s = JSON.parse(JSON.stringify(g));
+  const steps = [];
+  const R = roundsLeft(s);
+  const ids = Object.keys(allOrders);
+  const snap = () => ({
+    heat: [...s.heat], k: [...s.k], N: s.N,
+    players: JSON.parse(JSON.stringify(s.players)),
+  });
+
+  // 1) reveal orders
+  steps.push({ kind: 'orders', orders: JSON.parse(JSON.stringify(allOrders)), snap: snap() });
+
+  // 2) buy pressure first — everyone's entries priced at post-pressure heat.
+  //    A player may queue many buys; affordability is checked cumulatively.
+  const buyUnits = Array(13).fill(0);
+  for (const pid of ids) {
+    let committed = 0;
+    const bk = s.players[pid].bankroll;
+    for (const b of allOrders[pid].buys || []) {
+      if (s.k[b.rank] <= 0 || bk < committed + b.stake) continue;
+      committed += b.stake;
+      buyUnits[b.rank] += b.stake >= 80 ? 2 : 1;
+    }
+  }
+  const entries = [];
+  for (const pid of ids) {
+    const pl = s.players[pid];
+    for (const b of allOrders[pid].buys || []) {
+      if (s.k[b.rank] <= 0 || pl.bankroll < b.stake) continue;
+      const pay = buyPayout(s.k[b.rank], s.N, R, s.heat[b.rank] + buyUnits[b.rank]);
+      pl.bankroll -= b.stake;
+      pl.dayWagered += b.stake;
+      pl.pos[b.rank] = blend(pl.pos[b.rank], b.stake, pay);
+      entries.push({ pid, rank: b.rank, stake: b.stake, payout: pay });
+    }
+  }
+  for (let i = 0; i < 13; i++) s.heat[i] += buyUnits[i];
+  steps.push({ kind: 'buys', entries, snap: snap() });
+
+  // 3) sells execute at post-buy-pressure prices
+  const sellUnits = Array(13).fill(0);
+  const sellExecs = [];
+  for (const pid of ids) {
+    for (const rid of allOrders[pid].sells || []) {
+      const pl = s.players[pid];
+      const pos = pl.pos[rid];
+      if (!pos) continue;
+      const val = pos.stake * sellValuePerStake(s.k[rid], s.N, R, pos.payout, s.heat[rid]);
+      pl.bankroll += val;
+      pl.dayReturned += val;
+      delete pl.pos[rid];
+      sellUnits[rid] += 1;
+      sellExecs.push({ pid, rank: rid, stake: pos.stake, value: val });
+    }
+  }
+  for (let i = 0; i < 13; i++) s.heat[i] -= sellUnits[i];
+  if (sellExecs.length) steps.push({ kind: 'sells', execs: sellExecs, snap: snap() });
+
+  // 4) register bears (copper a held rank: inverts boom/bust this round)
+  for (const pid of ids) {
+    const br = allOrders[pid].bear;
+    if (br == null) continue;
+    const pl = s.players[pid];
+    if (!pl.pos[br]) continue;
+    pl.bear = br;
+  }
+  const bears = ids.filter(p => s.players[p].bear != null).map(p => ({ pid: p, rank: s.players[p].bear }));
+  if (bears.length) steps.push({ kind: 'bear', bears, snap: snap() });
+
+  // 5) faro reveal — bust card first, then boom card. Pop a concrete suit
+  //    for each so the reveal shows a real card drawn from the full deck.
+  const bust = s.shoe[s.shoeIdx], boom = s.shoe[s.shoeIdx + 1];
+  s.shoeIdx += 2;
+  const popSuit = rank => { const a = s.suitsLeft[rank]; return (a && a.length) ? a.pop() : Math.floor(Math.random() * 4); };
+  const bustSuit = popSuit(bust), boomSuit = popSuit(boom);
+  steps.push({ kind: 'faro', bust, boom, bustSuit, boomSuit, snap: snap() });
+
+  // 6) resolutions
+  const resolutions = [];
+  const isDoublet = bust === boom;
+  for (const pid of ids) {
+    const pl = s.players[pid];
+    for (const ridStr of Object.keys(pl.pos)) {
+      const rid = Number(ridStr);
+      if (rid !== bust && rid !== boom) continue;
+      const pos = pl.pos[rid];
+      const beared = pl.bear === rid;
+      let kind, amount = 0;
+      if (isDoublet) { kind = 'doublet'; amount = pos.stake * 0.5; }
+      else if (rid === boom) {
+        if (beared) { kind = 'bearMiss'; amount = 0; }
+        else { kind = 'boom'; amount = pos.stake * pos.payout; }
+      } else {
+        if (beared) { kind = 'bearWin'; amount = pos.stake * pos.payout; }
+        else { kind = 'bust'; amount = 0; }
+      }
+      pl.bankroll += amount;
+      pl.dayReturned += amount;
+      delete pl.pos[rid];
+      resolutions.push({ pid, rank: rid, kind, amount, stake: pos.stake });
+    }
+    pl.bear = null;
+  }
+  if (isDoublet) s.k[bust] = Math.max(0, s.k[bust] - 2);
+  else { s.k[bust] -= 1; s.k[boom] -= 1; }
+  s.N -= 2;
+  s.lastBust = bust; s.lastBoom = boom;
+  s.bankruptLastRound = resolutions.some(r => r.kind === 'bust');
+  steps.push({ kind: 'resolve', resolutions, isDoublet, bust, boom, snap: snap() });
+
+  // 7) reprice: heat decays toward 0
+  for (let i = 0; i < 13; i++) s.heat[i] = Math.trunc(s.heat[i] / 2);
+  steps.push({ kind: 'reprice', snap: snap() });
+
+  s.round += 1;
+  return { steps, final: s };
+}
+
+// market close: salvage any position still open (the deck empties exactly, so
+// this is normally a no-op — kept as a safety net).
+function closeDay(g) {
+  const s = JSON.parse(JSON.stringify(g));
+  const salvages = [];
+  for (const pid of Object.keys(s.players)) {
+    const pl = s.players[pid];
+    for (const rid of Object.keys(pl.pos)) {
+      const ref = pl.pos[rid].stake * CFG.SALVAGE;
+      pl.bankroll += ref;
+      pl.dayReturned += ref;
+      salvages.push({ pid, rank: Number(rid), stake: pl.pos[rid].stake, refund: ref });
+      delete pl.pos[rid];
+    }
+  }
+  return { final: s, salvages };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════════════════════
+const $ = (n, d = 0) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const GOLD = '#e8b54d', RED = '#ff5b5b', GREEN = '#3ddc97', DIM = '#9aa3b2';
+
+// ── SFX — synthesized WebAudio, no asset files ─────────────────
+// Single choke point for every cue. All sound is generated procedurally
+// (oscillators + decaying noise) so the game stays one portable file.
+// Context is created lazily on the first cue (after a user gesture, so
+// autoplay policy is satisfied) and shared thereafter.
+const Sfx = (function () {
+  let ctx = null, master = null, muted = false;
+  function ensure() {
+    if (ctx) return ctx;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      master = ctx.createGain();
+      master.gain.value = 0.32;
+      master.connect(ctx.destination);
+    } catch (e) { ctx = null; }
+    return ctx;
+  }
+  // a single enveloped oscillator (optionally pitch-gliding)
+  function tone(freq, t0, dur, o2) {
+    const opt = o2 || {};
+    const osc = ctx.createOscillator(); osc.type = opt.type || 'sine';
+    const g = ctx.createGain();
+    osc.frequency.setValueAtTime(freq, t0);
+    if (opt.slideTo) osc.frequency.exponentialRampToValueAtTime(opt.slideTo, t0 + dur);
+    const peak = opt.gain || 0.25, atk = opt.attack || 0.005;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(master);
+    osc.start(t0); osc.stop(t0 + dur + 0.05);
+  }
+  // a burst of filtered, decaying noise (snaps, whooshes, thuds)
+  function noise(t0, dur, o2) {
+    const opt = o2 || {};
+    const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const f = ctx.createBiquadFilter(); f.type = opt.type || 'highpass'; f.frequency.value = opt.freq || 2000;
+    const g = ctx.createGain(); g.gain.value = opt.gain || 0.25;
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t0);
+  }
+  const recipes = {
+    buy: t => tone(440, t, 0.12, { type: 'triangle', gain: 0.22, slideTo: 680 }),
+    sell: t => tone(560, t, 0.13, { type: 'triangle', gain: 0.2, slideTo: 320 }),
+    bear: t => tone(150, t, 0.34, { type: 'sawtooth', gain: 0.2, slideTo: 80 }),
+    cardFlip: t => noise(t, 0.08, { gain: 0.22, type: 'highpass', freq: 1400 }),
+    cardsResolve: t => { tone(300, t, 0.32, { type: 'sine', gain: 0.16, slideTo: 540 }); noise(t, 0.18, { gain: 0.1, freq: 900 }); },
+    win: t => { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, t + i * 0.075, 0.5, { type: 'triangle', gain: 0.26 })); noise(t, 0.4, { gain: 0.05, freq: 6500 }); },
+    cashTick: t => { tone(987.77, t, 0.1, { type: 'square', gain: 0.16 }); tone(1318.5, t + 0.04, 0.18, { type: 'triangle', gain: 0.2 }); },
+    bust: t => { tone(190, t, 0.42, { type: 'sawtooth', gain: 0.28, slideTo: 55 }); noise(t, 0.26, { gain: 0.16, type: 'lowpass', freq: 420 }); },
+    doublet: t => { tone(466, t, 0.14, { type: 'triangle', gain: 0.18 }); tone(466, t + 0.17, 0.14, { type: 'triangle', gain: 0.18 }); },
+    dayEnd: t => { [880, 880, 660].forEach((f, i) => tone(f, t + i * 0.2, 0.7, { type: 'sine', gain: 0.24 })); },
+    timerWarn: t => { tone(880, t, 0.12, { type: 'square', gain: 0.24 }); tone(880, t + 0.17, 0.12, { type: 'square', gain: 0.24 }); },
+    tick: t => tone(640, t, 0.05, { type: 'square', gain: 0.11 }),
+    tickUrgent: t => { tone(1000, t, 0.1, { type: 'square', gain: 0.3 }); noise(t, 0.04, { gain: 0.08, freq: 3200 }); },
+  };
+  return {
+    play(name) {
+      if (muted) return;
+      const c = ensure(); if (!c) return;
+      if (c.state === 'suspended') { try { c.resume(); } catch (e) {} }
+      const fn = recipes[name]; if (!fn) return;
+      try { fn(c.currentTime + 0.001); } catch (e) {}
+    },
+    setMuted(m) { muted = !!m; },
+    isMuted() { return muted; },
+  };
+})();
+function playSfx(name) { try { if (window.__sfxLog) window.__sfxLog.push(name); Sfx.play(name); } catch (e) {} }
+
+function Pips({ k }) {
+  return (
+    <div style={{ display: 'flex', gap: 3, justifyContent: 'center' }}>
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} style={{
+          width: 7, height: 10, borderRadius: 2,
+          background: i < k ? GOLD : 'rgba(255,255,255,0.10)',
+          border: i < k ? 'none' : '1px solid rgba(255,255,255,0.12)',
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ── card art (full 52-card Public Domain deck in cards/) ──
+const RANK_CODE = ['A', 'K', 'Q', 'J', '0', '9', '8', '7', '6', '5', '4', '3', '2']; // by rank id
+const SUIT_CODE = ['S', 'H', 'D', 'C'];
+const cardImg = (rankId, suit) => `cards/${RANK_CODE[rankId]}${SUIT_CODE[suit || 0]}.png`;
+const CARD_BACK = 'cards/back.png';
+
+// A betting spot on the faro layout: the spot IS the spade card — real card
+// art, full-bleed (cropped to the spot), matte-treated so it reads as painted
+// on the board, unlike the glossy uncropped cards drawn from the shoe. The
+// corner index gets cropped away, so rank/price/position ride as overlay badges.
+function BettingSpot({ r, g, you, quote, oiCnt, onTap, flash, pendingMark }) {
+  const k = g.k[r.id];
+  const heat = g.heat[r.id];
+  const pos = you.pos[r.id];
+  const delisted = k <= 0;
+  const priceColor = heat >= 2 ? '#ff8a76' : heat <= -2 ? '#7db8ff' : '#fff';
+  let ring = pos ? GOLD : 'rgba(0,0,0,0.4)', glow = 'none';
+  if (flash === 'boom') { ring = GOLD; glow = `0 0 18px 3px ${GOLD}`; }
+  else if (flash === 'bust') { ring = RED; glow = `0 0 16px 3px ${RED}cc`; }
+  else if (flash === 'doublet') { ring = '#c95bff'; glow = '0 0 16px 3px #c95bffcc'; }
+  const badge = { color: '#fff', background: 'rgba(10,12,18,0.78)', borderRadius: 4, padding: '1.5px 4px', lineHeight: 1.2 };
+  return (
+    <div data-rank={r.id} onClick={() => !delisted && onTap(r.id)} style={{
+      position: 'relative', borderRadius: 6, minHeight: 60, cursor: delisted ? 'default' : 'pointer',
+      background: '#0e1016',
+      border: `2px solid ${ring}`, boxShadow: glow, opacity: delisted ? 0.45 : 1,
+      animation: flash === 'bust' ? 'shake 0.5s' : flash === 'boom' ? 'winCard 1.3s ease-out 1' : 'none',
+      transition: 'box-shadow 0.3s, border-color 0.3s',
+    }}>
+      <img src={cardImg(r.id, 0)} alt="" draggable={false} style={{
+        position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', borderRadius: 4,
+        filter: delisted ? 'grayscale(1) brightness(0.5)' : 'saturate(0.85) brightness(0.97)',
+      }} />
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', padding: '2px 3px' }}>
+        {/* top-anchored crop keeps the card's own corner index visible — no rank badge needed */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-start', lineHeight: 1 }}>
+          {!delisted && oiCnt > 0 && <span style={{ ...badge, fontSize: 7.5, fontWeight: 700, padding: '1.5px 3px' }}>👥{oiCnt}</span>}
+        </div>
+        {/* price / odds */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {delisted
+            ? <span style={{ ...badge, fontSize: 9, fontWeight: 800, letterSpacing: 1 }}>OUT</span>
+            : <span style={{ ...badge, fontSize: 13.5, fontWeight: 900, color: priceColor, borderRadius: 5, padding: '1.5px 6px' }}>{quote.toFixed(2)}<span style={{ fontSize: 8.5 }}>x</span></span>}
+        </div>
+        {/* cards-left + your position */}
+        {!delisted && <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ display: 'flex', gap: 1.5, background: 'rgba(10,12,18,0.6)', borderRadius: 3, padding: '2px 3px' }} title="cards left in shoe">
+            {[0, 1, 2, 3].map(i => <span key={i} style={{ width: 4, height: 5, borderRadius: 1, background: i < k ? '#fff' : 'rgba(255,255,255,0.28)' }} />)}
+          </span>
+          {pos && <span style={{ ...badge, fontSize: 7.5, fontWeight: 800, color: GOLD, padding: '1px 3px' }}>${$(pos.stake)}</span>}
+        </div>}
+      </div>
+      {pendingMark && <div style={{ position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', fontSize: 8.5, fontWeight: 800, background: '#1a1f2b', border: `1px solid ${GOLD}`, borderRadius: 7, padding: '0 5px', color: GOLD, zIndex: 3, whiteSpace: 'nowrap' }}>{pendingMark}</div>}
+    </div>
+  );
+}
+
+function FaroCard({ rank, suit, label, color, revealed }) {
+  const r = rank != null ? RANKS[rank] : null;
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ fontSize: 11, color, fontWeight: 800, marginBottom: 5, letterSpacing: 1 }}>{label}</div>
+      <div style={{
+        width: 80, height: 110, borderRadius: 10, margin: '0 auto', overflow: 'hidden',
+        background: revealed ? '#fff' : '#0e1016',
+        border: `2.5px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        animation: revealed ? 'flipIn 0.45s ease-out' : 'none',
+        boxShadow: revealed ? `0 0 24px ${color}66` : 'none',
+      }}>
+        {revealed && r ? (
+          <img src={cardImg(r.id, suit)} alt={r.glyph} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        ) : (
+          <img src={CARD_BACK} alt="card" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Ambient full-screen blowout: gold flash, expanding ring, "PAYDAY"
+// banner, and a confetti/coin burst. No dollar figure here — the actual
+// amounts ride the FlyChips from card to bankroll. Self-clears via onDone.
+function WinBlast({ onDone }) {
+  useEffect(() => { const id = setTimeout(onDone, 2600); return () => clearTimeout(id); }, []);
+  // deterministic per-particle scatter — stable across renders, no Math.random churn
+  const rand = (i, s) => { const x = Math.sin(i * 12.9898 + s * 78.233) * 43758.5453; return x - Math.floor(x); };
+  const EMO = ['💰', '🪙', '✨', '🎉', '💵', '⭐', '🤑', '💸'];
+  const particles = Array.from({ length: 30 }, (_, i) => {
+    const ang = rand(i, 1) * Math.PI * 2;
+    const dist = 150 + rand(i, 2) * 230;
+    return {
+      dx: Math.cos(ang) * dist,
+      dy: Math.sin(ang) * dist + 80,            // slight gravity bias downward
+      rot: rand(i, 3) * 1440 - 720,
+      dur: 1.7 + rand(i, 4) * 0.9,
+      delay: rand(i, 5) * 0.22,
+      emo: EMO[Math.floor(rand(i, 6) * EMO.length)],
+      size: 20 + rand(i, 7) * 24,
+    };
+  });
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 55, pointerEvents: 'none', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 42%, rgba(232,181,77,0.55), rgba(232,181,77,0.10) 52%, transparent 74%)', animation: 'winFlash 0.9s ease-out forwards' }} />
+      <div style={{ position: 'absolute', left: '50%', top: '42%', width: 200, height: 200, marginLeft: -100, marginTop: -100, borderRadius: '50%', border: `4px solid ${GOLD}`, animation: 'ringPulse 0.85s ease-out forwards' }} />
+      <div style={{ position: 'absolute', left: 0, right: 0, top: '36%', textAlign: 'center' }}>
+        <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 4, color: GOLD, textShadow: '0 0 14px rgba(232,181,77,0.95)', animation: 'winNumber 2.6s ease-out forwards' }}>💰 PAYDAY 💰</div>
+      </div>
+      {particles.map((p, i) => (
+        <div key={i} style={{
+          position: 'absolute', left: '50%', top: '42%', fontSize: p.size, lineHeight: 1,
+          '--dx': p.dx + 'px', '--dy': p.dy + 'px', '--rot': p.rot + 'deg',
+          animation: `confettiBurst ${p.dur}s ease-out ${p.delay}s forwards`,
+        }}>{p.emo}</div>
+      ))}
+    </div>
+  );
+}
+
+// A single payout amount flying from the winning card up to the bankroll
+// counter, arcing and shrinking on arrival. Calls onLand when it touches
+// down so the caller can tick the bankroll and pulse the counter.
+function FlyChip({ amount, from, to, delay, onLand }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const DUR = 920, d = delay || 0;
+    let landed = false;
+    const land = () => { if (landed) return; landed = true; onLand(); };
+    const el = ref.current;
+    if (el && el.animate) {
+      const dx = to.x - from.x, dy = to.y - from.y;
+      try {
+        el.animate([
+          { transform: 'translate(-50%,-50%) scale(0.6)', opacity: 0 },
+          { transform: 'translate(-50%,-50%) scale(1.25)', opacity: 1, offset: 0.18 },
+          { transform: `translate(calc(-50% + ${dx * 0.5}px), calc(-50% + ${dy * 0.5 - 46}px)) scale(1.1)`, opacity: 1, offset: 0.55 },
+          { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.45)`, opacity: 0.9 },
+        ], { duration: DUR, delay: d, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
+      } catch (e) {}
+    }
+    // drive the landing from a timer, not WAAPI's onfinish — onfinish is
+    // throttled/unreliable in background tabs, which would strand the credit.
+    const id = setTimeout(land, DUR + d + 40);
+    return () => clearTimeout(id);
+  }, []);
+  return (
+    <div ref={ref} style={{
+      position: 'fixed', left: from.x, top: from.y, zIndex: 62, pointerEvents: 'none',
+      fontSize: 22, fontWeight: 900, color: '#fff', whiteSpace: 'nowrap',
+      textShadow: `0 0 12px ${GOLD}, 0 2px 0 #b9892f, 0 3px 10px rgba(0,0,0,0.6)`,
+    }}>+${$(amount, 2)}</div>
+  );
+}
+
+function App() {
+  const [bankrollSeed] = useState(() => {
+    const v = localStorage.getItem('fs_bankroll');
+    return v ? Number(v) : 1000;
+  });
+  const [dayNum, setDayNum] = useState(() => Number(localStorage.getItem('fs_day') || 1));
+  const [game, setGame] = useState(() => newDay(Number(localStorage.getItem('fs_day') || 1), { you: bankrollSeed }));
+  const [view, setView] = useState(null);          // playback snapshot override
+  const [phase, setPhase] = useState('orders');    // orders | playback | close
+  const [stepInfo, setStepInfo] = useState(null);  // current playback step
+  const [faroShow, setFaroShow] = useState(null);  // {bust, boom, bustUp, boomUp}
+  const [flashMap, setFlashMap] = useState({});    // rankId -> 'boom'|'bust'|'doublet'
+  const [winFx, setWinFx] = useState(null);        // {key} — ambient full-screen blowout
+  const [flyChips, setFlyChips] = useState([]);    // payout amounts flying card -> bankroll
+  const [pendingCredit, setPendingCredit] = useState(0); // won-but-not-yet-landed $; held off the displayed bankroll
+  const [bankPulse, setBankPulse] = useState(0);   // bumps to re-fire the bankroll cashPop
+  const blastSeq = useRef(0);                       // unique id source for blowouts + chips
+  const bankrollRef = useRef(null);                 // fly-to target
+  const [sheet, setSheet] = useState(null);        // rank id for detail sheet
+  const [pending, setPending] = useState({ buys: [], sells: [], bear: null });
+  const [stake, setStake] = useState(25);
+  const [timer, setTimer] = useState(CFG.TIMER_SEC);
+  const [ticker, setTicker] = useState([{ t: 'Market open — Day ' + (localStorage.getItem('fs_day') || 1), c: GOLD }]);
+  const [botOrders, setBotOrders] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [help, setHelp] = useState(() => !localStorage.getItem('fs_seenHelp'));
+  const [muted, setMuted] = useState(() => localStorage.getItem('fs_muted') === '1');
+  const timeouts = useRef([]);
+  const later = (fn, ms) => timeouts.current.push(setTimeout(fn, ms));
+  const clearTimers = () => { timeouts.current.forEach(clearTimeout); timeouts.current = []; };
+
+  const g = view || game;
+  const you = g.players.you;
+  const R = roundsLeft(game);
+
+  const log = (t, c = DIM) => setTicker(tk => [{ t, c }, ...tk].slice(0, 40));
+
+  // open interest: how the rest of the table is positioned, per rank
+  const oi = useMemo(() => {
+    const cnt = Array(13).fill(0), stk = Array(13).fill(0);
+    Object.entries(g.players).forEach(([pid, pl]) => {
+      if (pid === 'you') return;
+      Object.entries(pl.pos).forEach(([rid, p]) => { cnt[rid] += 1; stk[rid] += p.stake; });
+    });
+    return { cnt, stk };
+  }, [g]);
+
+  // bots decide at round start
+  useEffect(() => {
+    if (phase !== 'orders') return;
+    const orders = {};
+    BOTS.forEach(b => { orders[b.id] = botDecide(b, game); });
+    setBotOrders(orders);
+    setTimer(CFG.TIMER_SEC);
+  }, [phase, game.round, game.day]);
+
+  // countdown — drives the clock and its audio: a warning at 10s, a tick
+  // every second after, and an exaggerated tick for the final 3.
+  useEffect(() => {
+    if (phase !== 'orders' || help || summary) return;
+    if (timer <= 0) { lockIn(); return; }
+    const id = setTimeout(() => {
+      const nt = timer - 1;
+      if (nt === 10) playSfx('timerWarn');
+      else if (nt >= 4 && nt <= 9) playSfx('tick');
+      else if (nt >= 1 && nt <= 3) playSfx('tickUrgent');
+      setTimer(nt);
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [timer, phase, help, summary]);
+
+  useEffect(() => () => clearTimers(), []);
+
+  // keep the audio engine + storage in sync with the mute toggle
+  useEffect(() => { Sfx.setMuted(muted); try { localStorage.setItem('fs_muted', muted ? '1' : '0'); } catch (e) {} }, [muted]);
+
+  // dev/test hook (harmless in prod; lets automated playtests drive rounds)
+  useEffect(() => {
+    window.__fs = {
+      buy: (rid, stk) => setPending(p => ({ ...p, buys: [...p.buys, { rank: rid, stake: stk || 25 }], sells: p.sells.filter(s => s !== rid) })),
+      sell: rid => toggleSell(rid),
+      bear: rid => toggleBear(rid),
+      clear: () => setPending({ buys: [], sells: [], bear: null }),
+      lock: lockIn,
+      freeze: () => setTimer(9999),
+      state: () => ({ phase, round: game.round, day: game.day, you: game.players.you, k: game.k, heat: game.heat, pending }),
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fs_bankroll', String(Math.round(game.players.you.bankroll)));
+    localStorage.setItem('fs_day', String(dayNum));
+  }, [game, dayNum]);
+
+  const quoteFor = rid => buyPayout(g.k[rid], g.N, roundsLeft(g), g.heat[rid]);
+
+  const lockGuard = useRef(false);
+  function lockIn() {
+    if (phase !== 'orders' || !botOrders || lockGuard.current) return;
+    lockGuard.current = true;
+    setSheet(null);
+    const myOrders = { buys: pending.buys, sells: [...pending.sells], bear: pending.bear };
+    const all = { you: myOrders, ...botOrders };
+    let resolved;
+    try {
+      resolved = resolveRound(game, all);
+    } catch (e) {
+      console.error('resolveRound failed', e);
+      window.__lockErr = String(e && e.stack || e);
+      lockGuard.current = false;
+      return; // stay in orders phase — never wedge the game
+    }
+    setPhase('playback');
+    setPending({ buys: [], sells: [], bear: null });
+    playSteps(resolved.steps, resolved.final);
+  }
+
+  function finishRound(final) {
+    clearTimers();
+    lockGuard.current = false;
+    setView(null);
+    setStepInfo(null);
+    setFaroShow(null);
+    setFlashMap({});
+    setPendingCredit(0);   // any in-flight chips are abandoned; show the true bankroll
+    setFlyChips([]);
+    setGame(final);
+    if (final.round > CFG.ROUNDS) {
+      const { final: closed, salvages } = closeDay(final);
+      setGame(closed);
+      const yp = closed.players.you;
+      setSummary({
+        pnl: yp.dayReturned - yp.dayWagered, wagered: yp.dayWagered, returned: yp.dayReturned,
+        salvages: salvages.filter(s2 => s2.pid === 'you'),
+      });
+      setPhase('close');
+      playSfx('dayEnd');
+      log('🔔 Closing bell!', GOLD);
+    } else {
+      setPhase('orders');
+    }
+  }
+
+  function playSteps(steps, final) {
+    // hidden page (user backgrounded the app): browsers throttle timers hard,
+    // and nobody sees the animation — commit the round instantly.
+    if (document.hidden) {
+      const res = steps.find(s2 => s2.kind === 'resolve');
+      if (res && res.isDoublet) log(`DOUBLET! ${RANKS[res.bust].glyph} split — half back`, '#c95bff');
+      else if (res) log(`📈 ${RANKS[res.boom].glyph} ACQUIRED · 📉 ${RANKS[res.bust].glyph} BANKRUPT`, GOLD);
+      finishRound(final);
+      return;
+    }
+    const SPD = window.__fsFast ? 0.08 : 1; // test fast-forward
+    let t = 200 * SPD;
+    const D0 = { orders: 1700, buys: 1400, sells: 1400, bear: 1100, faro: 0, resolve: 2100, reprice: 800 };
+    const D = Object.fromEntries(Object.entries(D0).map(([k2, v]) => [k2, v * SPD]));
+    for (const st of steps) {
+      if (st.kind === 'faro') {
+        later(() => { setStepInfo(st); setFaroShow({ bust: st.bust, boom: st.boom, bustSuit: st.bustSuit, boomSuit: st.boomSuit, bustUp: false, boomUp: false }); }, t);
+        later(() => { setFaroShow(f => f && { ...f, bustUp: true }); playSfx('cardFlip'); }, t + 600 * SPD);
+        later(() => { setFaroShow(f => f && { ...f, boomUp: true }); playSfx('cardFlip'); }, t + 1500 * SPD);
+        t += 2600 * SPD;
+        continue;
+      }
+      later(() => { try {
+        setStepInfo(st);
+        setView(v => ({ ...(v || game), heat: st.snap.heat, k: st.snap.k, N: st.snap.N, players: st.snap.players }));
+        if (st.kind === 'orders') {
+          const nb = Object.values(st.orders).reduce((a, o) => a + (o.buys ? o.buys.length : 0), 0);
+          const ns = Object.values(st.orders).reduce((a, o) => a + (o.sells ? o.sells.length : 0), 0);
+          log(`Orders revealed — ${nb} buys, ${ns} sells`);
+        }
+        if (st.kind === 'buys') st.entries.forEach(e => {
+          if (e.pid === 'you') { log(`You bought ${RANKS[e.rank].glyph} $${$(e.stake)} @ ${e.payout.toFixed(2)}x`, GOLD); playSfx('buy'); }
+        });
+        if (st.kind === 'sells') st.execs.forEach(e => {
+          if (e.pid === 'you') { log(`Sold ${RANKS[e.rank].glyph} for $${$(e.value, 2)}`, GREEN); playSfx('sell'); }
+          else log(`${botName(e.pid)} sold ${RANKS[e.rank].glyph}`, DIM);
+        });
+        if (st.kind === 'bear') st.bears.forEach(b => {
+          log(`${b.pid === 'you' ? 'You' : botName(b.pid)} 🐻 beared ${RANKS[b.rank].glyph} — boom/bust flipped`, '#c95bff');
+          if (b.pid === 'you') playSfx('bear');
+        });
+        if (st.kind === 'resolve') {
+          playSfx('cardsResolve');
+          const fm = {};
+          if (st.isDoublet) fm[st.bust] = 'doublet';
+          else { fm[st.boom] = 'boom'; fm[st.bust] = 'bust'; }
+          setFlashMap(fm);
+          if (st.isDoublet) log(`DOUBLET! ${RANKS[st.bust].glyph} split — half back`, '#c95bff');
+          else log(`📈 ${RANKS[st.boom].glyph} ACQUIRED · 📉 ${RANKS[st.bust].glyph} BANKRUPT`, GOLD);
+          const wins = [];   // each winning payout flies to the bankroll on its own
+          st.resolutions.forEach(r => {
+            if (r.pid !== 'you') return;
+            if (r.kind === 'boom') { log(`💰 Your ${RANKS[r.rank].glyph} paid $${$(r.amount, 2)}!`, GOLD); wins.push(r); }
+            if (r.kind === 'bust') { log(`💥 Your ${RANKS[r.rank].glyph} went bankrupt. -$${$(r.stake)}`, RED); playSfx('bust'); }
+            if (r.kind === 'doublet') { log(`Your ${RANKS[r.rank].glyph} split: $${$(r.amount, 2)} back`, '#c95bff'); playSfx('doublet'); }
+            if (r.kind === 'bearWin') { log(`🐻 Bear WIN on ${RANKS[r.rank].glyph}: +$${$(r.amount, 2)}`, '#c95bff'); wins.push(r); }
+            if (r.kind === 'bearMiss') { log(`🐻 Bear missed — ${RANKS[r.rank].glyph} boomed without you`, RED); playSfx('bust'); }
+          });
+          if (wins.length) {
+            playSfx('win');
+            blastSeq.current += 1;
+            setWinFx({ key: blastSeq.current });
+            // hold the winnings off the displayed bankroll until each chip lands
+            const total = wins.reduce((a, w) => a + w.amount, 0);
+            setPendingCredit(c => c + total);
+            // capture screen positions now (DOM is current); fall back to a
+            // sensible point if a node is missing so a chip always flies.
+            const bankRect = bankrollRef.current && bankrollRef.current.getBoundingClientRect();
+            const to = bankRect ? { x: bankRect.left + bankRect.width / 2, y: bankRect.top + bankRect.height / 2 } : { x: 60, y: 40 };
+            const chips = wins.map((w, i) => {
+              const node = document.querySelector(`[data-rank="${w.rank}"]`);
+              const cr = node && node.getBoundingClientRect();
+              const from = cr ? { x: cr.left + cr.width / 2, y: cr.top + cr.height / 2 } : { x: window.innerWidth / 2, y: window.innerHeight * 0.42 };
+              return { id: blastSeq.current * 100 + i, amount: w.amount, from, to, delay: i * 220 };
+            });
+            setFlyChips(cs => [...cs, ...chips]);
+          }
+        }
+        if (st.kind === 'reprice') { setFaroShow(null); setFlashMap({}); }
+      } catch (e) { console.error('playback step failed', e); window.__stepErr = String(e && e.stack || e); } }, t);
+      t += D[st.kind] || 1000;
+    }
+    later(() => finishRound(final), t + 300 * SPD);
+  }
+
+  function botName(pid) { const b = BOTS.find(b2 => b2.id === pid); return b ? b.emoji : pid; }
+
+  function startNextDay() {
+    const nd = dayNum + 1;
+    setDayNum(nd);
+    const bks = Object.fromEntries(Object.entries(game.players).map(([id, p]) => [id, Math.max(p.bankroll, id === 'you' ? p.bankroll : 400)]));
+    if (bks.you < 10) { bks.you = 1000; log('Credit line extended +$1000', GOLD); }
+    setGame(newDay(nd, bks));
+    setSummary(null);
+    setPhase('orders');
+    log(`Market open — Day ${nd}`, GOLD);
+  }
+
+  // ── pending order helpers ──
+  const pendingBuyCost = pending.buys.reduce((a, b) => a + b.stake, 0);
+  function addBuy(rid) {
+    if (game.k[rid] <= 0) return;
+    if (you.bankroll < pendingBuyCost + stake) return;
+    setPending(p => ({ ...p, buys: [...p.buys, { rank: rid, stake }], sells: p.sells.filter(s => s !== rid) }));
+  }
+  function clearBuysFor(rid) {
+    setPending(p => ({ ...p, buys: p.buys.filter(b => b.rank !== rid) }));
+  }
+  function toggleSell(rid) {
+    setPending(p => {
+      const has = p.sells.includes(rid);
+      return {
+        ...p,
+        sells: has ? p.sells.filter(s => s !== rid) : [...p.sells, rid],
+        buys: has ? p.buys : p.buys.filter(b => b.rank !== rid),
+        bear: !has && p.bear === rid ? null : p.bear,
+      };
+    });
+  }
+  function toggleBear(rid) {
+    setPending(p => ({
+      ...p,
+      bear: p.bear === rid ? null : rid,
+      sells: p.bear === rid ? p.sells : p.sells.filter(s => s !== rid),
+    }));
+  }
+
+  const ordersLocked = phase !== 'orders';
+  const pendingParts = [];
+  if (pending.buys.length) pendingParts.push(`${pending.buys.length} BUY`);
+  if (pending.sells.length) pendingParts.push(`${pending.sells.length} SELL`);
+  if (pending.bear != null) pendingParts.push('BEAR');
+
+  // ─── render ───
+  return (
+    <div style={{ maxWidth: 430, margin: '0 auto', minHeight: '100dvh', color: '#e8e2d5', display: 'flex', flexDirection: 'column', position: 'relative', paddingBottom: 96 }}>
+
+      {/* top bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px 6px' }}>
+        <div>
+          <div style={{ fontSize: 10, color: DIM }}>BANKROLL</div>
+          <div key={bankPulse} ref={bankrollRef} style={{ fontSize: 20, fontWeight: 800, color: GOLD, display: 'inline-block', transformOrigin: 'left center', animation: bankPulse ? 'cashPop 0.45s ease-out' : 'none' }}>${$(Math.max(0, you.bankroll - pendingCredit), 0)}</div>
+        </div>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 1 }}>FARO <span style={{ color: GOLD }}>STONKS</span></div>
+          <div style={{ fontSize: 10, color: DIM }}>Day {g.day} · Round {Math.min(g.round, CFG.ROUNDS)}/{CFG.ROUNDS}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <div onClick={() => setMuted(m => !m)} title={muted ? 'Unmute' : 'Mute'} style={{ fontSize: 17, cursor: 'pointer', opacity: muted ? 0.45 : 0.9, userSelect: 'none' }}>{muted ? '🔇' : '🔊'}</div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: DIM }}>🔔 CLOSE</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: roundsLeft(g) <= 3 ? RED : '#fff' }}>
+              {Math.max(0, CFG.ROUNDS - g.round + 1)} rounds
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* shoe progress */}
+      <div style={{ margin: '0 12px 8px', height: 5, background: 'rgba(255,255,255,0.07)', borderRadius: 3 }}>
+        <div style={{ width: `${Math.min(100, ((CFG.ROUNDS - roundsLeft(g)) / CFG.ROUNDS) * 100)}%`, height: '100%', background: `linear-gradient(90deg,${GOLD},${RED})`, borderRadius: 3, transition: 'width 0.6s' }} />
+      </div>
+
+      {/* ticker */}
+      <div style={{ margin: '0 12px 8px', fontSize: 11, height: 16, overflow: 'hidden', color: ticker[0]?.c, whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+        {ticker[0]?.t}
+      </div>
+
+      {/* rank board — full-bleed spade card spots on felt (matte, unlike the
+          glossy cards drawn). Portrait grid, sized to fit one screen. */}
+      <div style={{ margin: '0 10px 8px', flex: 2, minHeight: 0, display: 'flex', flexDirection: 'column', borderRadius: 12, padding: '8px', background: 'radial-gradient(ellipse at 50% 18%, #2c7d54, #0c3a26 80%)', border: '1px solid rgba(0,0,0,0.5)', boxShadow: 'inset 0 0 26px rgba(0,0,0,0.45)' }}>
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoRows: 'minmax(60px, 1fr)', gap: 6 }}>
+          {RANKS.map(r => {
+            const buysHere = pending.buys.filter(b => b.rank === r.id);
+            let mark = null;
+            if (buysHere.length) mark = `BUY $${buysHere.reduce((a, b) => a + b.stake, 0)}${buysHere.length > 1 ? ' ×' + buysHere.length : ''}`;
+            else if (pending.sells.includes(r.id)) mark = 'SELL';
+            else if (pending.bear === r.id) mark = '🐻';
+            return <BettingSpot key={r.id} r={r} g={g} you={g.players.you} quote={quoteFor(r.id)}
+              oiCnt={oi.cnt[r.id]} onTap={setSheet} flash={flashMap[r.id]} pendingMark={mark} />;
+          })}
+          {/* the shoe — face-down card back */}
+          <div style={{ minHeight: 60, borderRadius: 6, overflow: 'hidden', border: '2px solid rgba(0,0,0,0.4)', position: 'relative', background: '#0e1016' }}>
+            <img src={CARD_BACK} alt="shoe" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(8,10,16,0.5)' }}>
+              <div style={{ fontSize: 20, fontWeight: 900, color: '#fff', textShadow: '0 1px 3px #000' }}>{g.N}</div>
+              <div style={{ fontSize: 7, color: '#e8e2d5', letterSpacing: 1, textShadow: '0 1px 2px #000' }}>SHOE</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* room — the table of bot seats (one scrollable row to save height) */}
+      <div style={{ display: 'flex', gap: 4, padding: '6px 12px 2px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+        {BOTS.map(b => {
+          const bp = g.players[b.id];
+          const holds = Object.keys(bp.pos).length;
+          return (
+            <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 3, background: '#12151e', borderRadius: 7, padding: '2px 5px', fontSize: 9.5, flex: '0 0 auto', border: `1px solid ${holds > 0 ? 'rgba(232,181,77,0.35)' : 'rgba(255,255,255,0.06)'}` }}>
+              <span style={{ fontSize: 12 }}>{b.emoji}</span>
+              <span style={{ color: DIM }}>${$(bp.bankroll)}</span>
+              {holds > 0 && <span style={{ color: GOLD, fontSize: 8, fontWeight: 700 }}>•{holds}</span>}
+            </div>
+          );
+        })}
+      </div>
+
+
+      {/* bottom action bar */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxWidth: 430, margin: '0 auto', background: 'linear-gradient(180deg, rgba(11,13,18,0), #0b0d12 28%)', padding: '14px 12px 12px', zIndex: 5 }}>
+        {phase === 'orders' && (
+          <React.Fragment>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+              <div style={{ fontSize: 10, color: DIM }}>STAKE</div>
+              {[10, 25, 50, 100].map(s2 => (
+                <div key={s2} onClick={() => setStake(s2)} style={{
+                  padding: '4px 10px', borderRadius: 14, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  background: stake === s2 ? GOLD : 'rgba(255,255,255,0.07)',
+                  color: stake === s2 ? '#14161c' : '#cfd6e4',
+                }}>${s2}</div>
+              ))}
+              <div style={{ flex: 1 }} />
+              {pendingBuyCost > 0 && <div style={{ fontSize: 10, color: GOLD, fontWeight: 700 }}>−${$(pendingBuyCost)}</div>}
+            </div>
+            {/* prominent order clock */}
+            <div style={{ marginBottom: 9 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 10, color: DIM, letterSpacing: 1, fontWeight: 700, paddingBottom: 4 }}>⏱ ORDERS CLOSE</span>
+                <span key={timer} style={{
+                  display: 'inline-block', lineHeight: 1, fontWeight: 900, fontVariantNumeric: 'tabular-nums',
+                  fontSize: timer <= 3 ? 36 : timer <= 10 ? 28 : 22,
+                  color: timer <= 3 ? RED : timer <= 10 ? GOLD : '#fff',
+                  textShadow: timer <= 3 ? `0 0 16px ${RED}` : timer <= 10 ? `0 0 10px ${GOLD}88` : 'none',
+                  animation: timer <= 3 ? 'timerPing 0.5s ease-out' : 'none',
+                  transition: 'color 0.2s',
+                }}>{timer}<span style={{ fontSize: '0.5em', fontWeight: 800 }}>s</span></span>
+              </div>
+              <div style={{ height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 4, overflow: 'hidden' }}>
+                <div style={{ height: '100%', borderRadius: 3, width: `${Math.max(0, Math.min(100, timer / CFG.TIMER_SEC * 100))}%`, background: timer <= 3 ? RED : timer <= 10 ? GOLD : GREEN, transition: 'width 1s linear, background 0.3s' }} />
+              </div>
+            </div>
+            <div onClick={lockIn} style={{
+              background: `linear-gradient(135deg, ${RED}, #c93b3b)`, borderRadius: 12, textAlign: 'center',
+              padding: '12px 0', fontWeight: 900, fontSize: 16, letterSpacing: 2, cursor: 'pointer', color: '#fff',
+              boxShadow: '0 4px 18px rgba(255,91,91,0.35)',
+            }}>
+              LOCK IN {pendingParts.length ? `(${pendingParts.join(' + ')})` : '(HOLD)'}
+            </div>
+          </React.Fragment>
+        )}
+        {phase === 'playback' && (
+          <div style={{ textAlign: 'center', fontSize: 13, color: DIM, padding: '14px 0', fontWeight: 700, letterSpacing: 1 }}>
+            {stepInfo ? ({ orders: '📢 ORDERS REVEALED', buys: '📈 BUY PRESSURE', sells: '💱 SELLS EXECUTE', bear: '🐻 BEARS COPPER', faro: '🎴 THE TURN…', resolve: '⚖️ RESOLUTION', reprice: '🔁 REPRICING' })[stepInfo.kind] : '…'}
+          </div>
+        )}
+      </div>
+
+      {/* faro reveal — sits in a lower band, no full-screen mask, so the board
+          and its boom/bust flashes stay visible above it */}
+      {faroShow && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 86, zIndex: 25, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ display: 'flex', gap: 22, animation: 'popIn 0.35s', background: 'rgba(8,10,16,0.9)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '12px 20px', boxShadow: '0 8px 30px rgba(0,0,0,0.55)' }}>
+            <FaroCard rank={faroShow.bust} suit={faroShow.bustSuit} label="BUST" color={RED} revealed={faroShow.bustUp} />
+            <FaroCard rank={faroShow.boom} suit={faroShow.boomSuit} label="BOOM" color={GOLD} revealed={faroShow.boomUp} />
+          </div>
+        </div>
+      )}
+
+      {/* rank detail sheet */}
+      {sheet != null && phase === 'orders' && (() => {
+        const rid = sheet, r = RANKS[rid];
+        const k = game.k[rid], N = game.N, heat = game.heat[rid];
+        const pos = you.pos[rid];
+        const quote = quoteFor(rid);
+        const op = outcomeProbs(k, N, R);
+        const sv = pos ? pos.stake * sellValuePerStake(k, N, R, pos.payout, heat) : 0;
+        const ds = demandState(heat);
+        const buysHere = pending.buys.filter(b => b.rank === rid);
+        const selling = pending.sells.includes(rid);
+        const bearing = pending.bear === rid;
+        const canAfford = you.bankroll - pendingBuyCost >= stake;
+        const Row = ({ l, v, c }) => (
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12 }}>
+            <span style={{ color: DIM }}>{l}</span><span style={{ fontWeight: 700, color: c || '#e8e2d5' }}>{v}</span>
+          </div>
+        );
+        return (
+          <div onClick={() => setSheet(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 20, display: 'flex', alignItems: 'flex-end' }}>
+            <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 430, margin: '0 auto', background: '#161a24', borderRadius: '18px 18px 0 0', padding: '16px 18px 22px', border: '1px solid rgba(255,255,255,0.09)', borderBottom: 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <img src={cardImg(rid, 0)} alt={`${r.glyph} of spades`} draggable={false} style={{ width: 44, height: 62, objectFit: 'contain', background: '#fff', borderRadius: 6 }} />
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: ds.color }}>{volState(k)} · {ds.name}</div>
+                  <div style={{ fontSize: 10, color: DIM }}>{oi.cnt[rid]} other {oi.cnt[rid] === 1 ? 'seat holds' : 'seats hold'} · ${$(oi.stk[rid])}</div>
+                </div>
+                <div style={{ flex: 1 }} />
+                <Pips k={k} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 18 }}>
+                <div>
+                  <Row l="Buy now" v={quote.toFixed(2) + 'x'} c={GOLD} />
+                  <Row l="Boom this round" v={(boomPct(k, N) * 100).toFixed(1) + '%'} />
+                  <Row l="Bust this round" v={(boomPct(k, N) * 100).toFixed(1) + '%'} />
+                  <Row l="Doublet risk" v={(doubletPct(k, N) * 100).toFixed(2) + '%'} />
+                </div>
+                <div>
+                  <Row l="Resolves by close" v={((1 - op.X) * 100).toFixed(0) + '%'} />
+                  {pos && <Row l="Your payout" v={pos.payout.toFixed(2) + 'x'} c={GOLD} />}
+                  {pos && <Row l="Your stake" v={'$' + $(pos.stake)} />}
+                  {pos && <Row l="Sell value" v={'$' + $(sv, 2)} c={sv >= pos.stake ? GREEN : RED} />}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                <div onClick={() => { if (canAfford && game.k[rid] > 0) addBuy(rid); }} style={{
+                  flex: 1, textAlign: 'center', padding: '11px 0', borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: 'pointer',
+                  background: buysHere.length ? GOLD : 'rgba(232,181,77,0.16)', color: buysHere.length ? '#14161c' : GOLD,
+                  border: `1px solid ${GOLD}55`, opacity: canAfford ? 1 : 0.4,
+                }}>BUY ${stake}{buysHere.length ? ` (×${buysHere.length})` : ''}</div>
+                {pos && !bearing && (
+                  <div onClick={() => toggleSell(rid)} style={{
+                    flex: 1, textAlign: 'center', padding: '11px 0', borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: 'pointer',
+                    background: selling ? GREEN : 'rgba(61,220,151,0.14)', color: selling ? '#14161c' : GREEN, border: `1px solid ${GREEN}55`,
+                  }}>{selling ? 'SELLING ✓' : 'SELL'}</div>
+                )}
+                {pos && !selling && (
+                  <div onClick={() => toggleBear(rid)} style={{
+                    flex: 1, textAlign: 'center', padding: '11px 0', borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: 'pointer',
+                    background: bearing ? '#c95bff' : 'rgba(201,91,255,0.13)', color: bearing ? '#14161c' : '#c95bff', border: '1px solid #c95bff55',
+                  }}>{bearing ? 'BEARED ✓' : 'BEAR'}</div>
+                )}
+              </div>
+              {buysHere.length > 0 && (
+                <div onClick={() => clearBuysFor(rid)} style={{ fontSize: 10, color: DIM, marginTop: 8, cursor: 'pointer', textAlign: 'center' }}>
+                  Queued {buysHere.length} buy{buysHere.length > 1 ? 's' : ''} · ${$(buysHere.reduce((a, b) => a + b.stake, 0))} — tap to clear
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* win celebration — ambient blowout + per-payout chips flying to the bankroll */}
+      {winFx && <WinBlast key={winFx.key} onDone={() => setWinFx(null)} />}
+      {flyChips.map(c => (
+        <FlyChip key={c.id} amount={c.amount} from={c.from} to={c.to} delay={c.delay} onLand={() => {
+          setFlyChips(cs => cs.filter(x => x.id !== c.id));
+          setPendingCredit(pc => Math.max(0, pc - c.amount));   // release this slice into the visible bankroll
+          setBankPulse(p => p + 1);                              // bump the counter
+          playSfx('cashTick');
+        }} />
+      ))}
+
+      {/* day summary */}
+      {summary && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,6,10,0.9)', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 320, background: '#161a24', borderRadius: 16, padding: 22, textAlign: 'center', border: `1px solid ${GOLD}44`, animation: 'popIn 0.4s' }}>
+            <div style={{ fontSize: 26 }}>🔔</div>
+            <div style={{ fontWeight: 900, fontSize: 17, letterSpacing: 1, marginBottom: 4 }}>MARKET CLOSED</div>
+            <div style={{ fontSize: 12, color: DIM, marginBottom: 12 }}>Day {game.day}</div>
+            <div style={{ fontSize: 30, fontWeight: 900, color: summary.pnl >= 0 ? GREEN : RED, marginBottom: 12 }}>
+              {summary.pnl >= 0 ? '+' : ''}{$(summary.pnl, 2)}
+            </div>
+            <div style={{ fontSize: 12, color: '#cfd6e4', textAlign: 'left', lineHeight: '20px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: '8px 12px' }}>
+              <div>Wagered: <b>${$(summary.wagered, 2)}</b></div>
+              <div>Returned: <b>${$(summary.returned, 2)}</b></div>
+              {summary.wagered > 0 && <div>Day RTP: <b>{(summary.returned / summary.wagered * 100).toFixed(1)}%</b></div>}
+              {summary.salvages.length > 0 && (
+                <div style={{ color: DIM }}>Open at close: {summary.salvages.map(s2 => RANKS[s2.rank].glyph).join(', ')} (25% refund)</div>
+              )}
+            </div>
+            <div onClick={startNextDay} style={{ marginTop: 16, background: `linear-gradient(135deg, ${GOLD}, #c89638)`, color: '#14161c', borderRadius: 10, padding: '12px 0', fontWeight: 900, fontSize: 14, cursor: 'pointer', letterSpacing: 1 }}>
+              NEXT TRADING DAY →
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* help overlay */}
+      {help && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,6,10,0.93)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ maxWidth: 340, background: '#161a24', borderRadius: 16, padding: 22, border: `1px solid ${GOLD}44` }}>
+            <div style={{ fontWeight: 900, fontSize: 18, textAlign: 'center', marginBottom: 14 }}>FARO <span style={{ color: GOLD }}>STONKS</span></div>
+            <div style={{ fontSize: 12.5, lineHeight: '19px', color: '#cfd6e4' }}>
+              <p style={{ margin: '0 0 10px' }}><b style={{ color: GOLD }}>🎴 Bet on ranks as stocks.</b> Each round two cards flip: the <b style={{ color: GOLD }}>BOOM</b> card pays holders their locked payout; the <b style={{ color: RED }}>BUST</b> card bankrupts them. Same rank on both = doublet, half back.</p>
+              <p style={{ margin: '0 0 10px' }}><b style={{ color: GOLD }}>🂠 The deck is the volatility.</b> 12 cards are burned at the open; each rank's price reflects its true remaining cards — fewer left = longshot = bigger payout. The market closes after 15 rounds with cards still in the shoe, so a position that never resolved refunds only 25%. Don't ride a longshot into the bell.</p>
+              <p style={{ margin: 0 }}><b style={{ color: GOLD }}>👥 Read the room.</b> Queue as many buys and sells as you like, then everyone's orders reveal at once. Buys push entry payouts down; your sells execute <i>after</i> their buys — sell into demand. 🐻 Bear a held rank to flip boom/bust if you smell a bankruptcy coming.</p>
+            </div>
+            <div onClick={() => { setHelp(false); localStorage.setItem('fs_seenHelp', '1'); }} style={{ marginTop: 16, background: `linear-gradient(135deg, ${GOLD}, #c89638)`, borderRadius: 10, padding: '12px 0', fontWeight: 900, textAlign: 'center', cursor: 'pointer', color: '#14161c' }}>
+              OPEN THE MARKET
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// engine exposed for automated tests
+window.__engine = { resolveRound, closeDay, newDay, outcomeProbs, basePayout, buyPayout, sellValuePerStake, blend, CFG };
+
+// engine self-test (console only)
+(function selfTest() {
+  const b = blend({ stake: 10, payout: 2.0 }, 10, 1.6);
+  console.assert(Math.abs(b.payout - 1.8) < 1e-9, 'blend');
+  const p = outcomeProbs(2, 4, 2);
+  console.assert(Math.abs(p.W + p.D + p.L + p.X - 1) < 1e-9, 'probs sum');
+  console.assert(basePayout(4, 40, 15) > 1.8 && basePayout(4, 40, 15) < 2.2, 'base payout sane');
+  console.assert(outcomeProbs(1, 40, 15).X > 0.05, 'bell buffer leaves expiry risk (longshots can die behind the bell)');
+})();
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
