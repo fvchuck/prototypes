@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Red Light · Green Light</title>
+<style>
+  :root {
+    --teal-sky-top: #2b4a4f;
+    --teal-sky-bot: #6f8c84;
+    --tan-far: #b89a6a;
+    --tan-near: #6e5a3c;
+    --orange: #e8622a;
+    --pink: #e85a8a;
+    --teal-accent: #3fd0c9;
+    --ink: #11181b;
+    --panel: rgba(14, 22, 24, 0.82);
+    --panel-border: rgba(63, 208, 201, 0.28);
+    --text: #eef3f2;
+    --text-dim: #9fb0ae;
+    --gold: #ffcf5c;
+    --green: #58d979;
+    --red: #ff4d4d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #0a0f10; color: var(--text);
+    font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; touch-action: none;
+  }
+  #stage { position: fixed; inset: 0; }
+  #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  #hud { position: absolute; inset: 0; pointer-events: none; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 14px; backdrop-filter: blur(6px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+
+  /* Top banner (light state) */
+  #banner {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    padding: 8px 26px; border-radius: 999px; font-weight: 800;
+    letter-spacing: 3px; font-size: 15px; text-transform: uppercase;
+    border: 2px solid var(--green); color: var(--green);
+    background: rgba(20,40,24,0.65); transition: all 0.12s ease;
+    text-shadow: 0 0 12px currentColor; box-shadow: 0 0 24px rgba(88,217,121,0.35);
+  }
+  #banner.red {
+    border-color: var(--red); color: #fff;
+    background: rgba(80,16,16,0.85); box-shadow: 0 0 40px rgba(255,60,60,0.7);
+    animation: bannerthrob 0.5s ease infinite;
+  }
+  @keyframes bannerthrob {
+    0%,100% { box-shadow: 0 0 40px rgba(255,60,60,0.7); }
+    50% { box-shadow: 0 0 64px rgba(255,40,40,0.95); }
+  }
+  /* atmospheric move/stop prompt under the banner (mood only) */
+  #promptline {
+    position: absolute; top: 50px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; letter-spacing: 4px; text-transform: uppercase;
+    color: var(--text-dim); text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+    transition: color 0.15s ease; pointer-events: none;
+  }
+  #banner.red ~ #promptline { color: var(--red); text-shadow: 0 0 10px rgba(255,60,60,0.6); }
+
+  /* Top-left stats cluster */
+  #stats {
+    position: absolute; top: 14px; left: 14px; padding: 12px 14px;
+    display: grid; grid-template-columns: auto auto; gap: 4px 18px;
+    font-size: 13px; min-width: 190px;
+  }
+  #stats .k { color: var(--text-dim); }
+  #stats .v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #stats .v.alive { color: var(--green); }
+  #stats .v.dead { color: var(--red); }
+  #stats .timerbar {
+    grid-column: 1 / -1; height: 5px; border-radius: 3px; margin-top: 6px;
+    background: rgba(255,255,255,0.12); overflow: hidden;
+  }
+  #stats .timerbar > i { display:block; height:100%; width:0%;
+    background: linear-gradient(90deg, var(--teal-accent), var(--gold)); transition: width 0.1s linear; }
+
+  /* Top-right piggy + potential */
+  #jarbox {
+    position: absolute; top: 14px; right: 14px; padding: 12px 16px; width: 230px;
+    text-align: center;
+  }
+  #jarbox .jarlabel { font-size: 11px; letter-spacing: 2px; color: var(--pink); text-transform: uppercase; }
+  #jar {
+    margin: 4px auto 2px; font-size: 30px; font-weight: 900; color: var(--gold);
+    font-variant-numeric: tabular-nums; text-shadow: 0 0 18px rgba(255,207,92,0.6);
+  }
+  #jarbox.pulse #jar { animation: jarpulse 0.4s ease; }
+  @keyframes jarpulse { 0%{transform:scale(1)} 40%{transform:scale(1.2); color:#fff} 100%{transform:scale(1)} }
+  #jarbox { transition: box-shadow 0.18s ease, border-color 0.18s ease; }
+  #jarbox.flash {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 2px rgba(255,207,92,0.5), 0 0 38px rgba(255,207,92,0.65), 0 8px 30px rgba(0,0,0,0.45);
+  }
+  #jarbox .divider { height:1px; background: var(--panel-border); margin: 8px 0; }
+  #jarbox .potlabel { font-size: 10px; letter-spacing: 2px; color: var(--teal-accent); text-transform: uppercase; }
+  #jarbox .potval { font-size: 18px; font-weight: 800; color: var(--teal-accent); font-variant-numeric: tabular-nums; }
+  #jarbox .sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+  #jarbox .sub b { color: var(--gold); }
+
+  /* Multiplier hero (center-bottom over controls) */
+  #multhero {
+    position: absolute; bottom: 168px; left: 50%; transform: translateX(-50%);
+    text-align: center; pointer-events: none;
+  }
+  #multhero .mv { font-size: 52px; font-weight: 900; line-height: 1;
+    color: var(--gold); text-shadow: 0 0 26px rgba(255,207,92,0.55); font-variant-numeric: tabular-nums; }
+  #multhero .ml { font-size: 12px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; }
+  #multhero.dim .mv { color: var(--text-dim); text-shadow:none; }
+
+  /* Controls */
+  #controls {
+    position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: flex-end; gap: 18px; pointer-events: auto;
+  }
+  #holdpad {
+    width: 230px; height: 122px; border-radius: 20px; border: none;
+    background: radial-gradient(circle at 50% 35%, #3fd0c9, #1d7e7a);
+    color: #06201f; font-size: 22px; font-weight: 900; letter-spacing: 1px;
+    box-shadow: 0 0 0 4px rgba(63,208,201,0.25), 0 10px 24px rgba(0,0,0,0.5);
+    cursor: pointer; transition: transform 0.06s ease, box-shadow 0.1s ease;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.3);
+  }
+  #holdpad .hint { display:block; font-size: 11px; font-weight:700; letter-spacing:2px; opacity:0.7; margin-top:6px; }
+  #holdpad.held {
+    transform: translateY(4px) scale(0.98);
+    background: radial-gradient(circle at 50% 35%, #6effe9, #2ba7a0);
+    box-shadow: 0 0 0 6px rgba(110,255,233,0.45), 0 0 40px rgba(63,208,201,0.6), inset 0 4px 14px rgba(0,0,0,0.3);
+  }
+  #cashout {
+    width: 132px; height: 96px; border-radius: 18px; border: none;
+    background: linear-gradient(180deg, #ffcf5c, #e8a020);
+    color: #2a1a00; font-size: 16px; font-weight: 900; letter-spacing: 1px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5); cursor: pointer;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  }
+  #cashout .cv { font-size: 19px; font-variant-numeric: tabular-nums; }
+  #controls button:disabled { filter: grayscale(0.7) brightness(0.55); cursor: default; box-shadow:none; }
+
+  /* Start / round-over panel */
+  #overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(5,9,10,0.55); backdrop-filter: blur(3px); pointer-events: auto;
+  }
+  #overlay.hidden { display: none; }
+  #card {
+    width: min(440px, 88vw); padding: 28px 30px; text-align: center;
+  }
+  #card h1 { font-size: 26px; letter-spacing: 1px; margin-bottom: 6px; }
+  #card .outcome { font-size: 30px; font-weight: 900; margin: 10px 0; }
+  #card .outcome.win { color: var(--green); text-shadow: 0 0 20px rgba(88,217,121,0.5); }
+  #card .outcome.lose { color: var(--red); }
+  #card .breakdown {
+    text-align: left; font-size: 13px; color: var(--text-dim); margin: 14px 0 18px;
+    border-top: 1px solid var(--panel-border); padding-top: 12px;
+  }
+  #card .breakdown .row { display:flex; justify-content:space-between; padding: 3px 0; }
+  #card .breakdown .row b { color: var(--text); font-variant-numeric: tabular-nums; }
+  #card .sub { font-size: 13px; color: var(--text-dim); margin-bottom: 18px; line-height:1.5; }
+  #startbtn {
+    width: 100%; padding: 16px; border: none; border-radius: 14px;
+    background: linear-gradient(180deg, var(--orange), #c44a18);
+    color: #fff; font-size: 18px; font-weight: 900; letter-spacing: 2px;
+    cursor: pointer; text-transform: uppercase; box-shadow: 0 8px 22px rgba(232,98,42,0.45);
+  }
+  #startbtn:hover { filter: brightness(1.08); }
+
+  /* RTP Lab debug panel */
+  #rtplab {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: min(460px, 92vw); padding: 18px 20px; pointer-events: auto; z-index: 5;
+  }
+  #rtplab.hidden { display: none; }
+  #rtplab .rtphead {
+    display:flex; justify-content:space-between; align-items:center;
+    font-size: 17px; font-weight: 800; letter-spacing: 1px; color: var(--teal-accent);
+  }
+  #rtplab .rtpclose { cursor:pointer; color: var(--text-dim); font-size:15px; }
+  #rtplab .rtpclose:hover { color: var(--text); }
+  #rtplab .rtphint { font-size: 11px; color: var(--text-dim); margin: 6px 0 12px; line-height:1.4; }
+  #rtplab .rtpbtns { display:flex; gap:10px; margin-bottom: 12px; }
+  #rtplab .rtprun {
+    flex:1; padding: 11px; border:none; border-radius: 10px; cursor:pointer;
+    background: linear-gradient(180deg, #3fd0c9, #1d7e7a); color:#06201f;
+    font-weight: 800; letter-spacing: 1px; font-size: 13px;
+  }
+  #rtplab .rtprun:hover { filter: brightness(1.08); }
+  #rtplab .rtprun:disabled { filter: grayscale(0.6) brightness(0.6); cursor: default; }
+  #rtplab .rtpstatus {
+    font-size: 12px; color: var(--gold); min-height: 18px; margin-bottom: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  #rtplab .rtpgrid {
+    display:grid; grid-template-columns: auto auto; gap: 4px 14px;
+    font-size: 14px; padding: 10px 0; border-top:1px solid var(--panel-border);
+    border-bottom:1px solid var(--panel-border);
+  }
+  #rtplab .rtpgrid .k { color: var(--text-dim); }
+  #rtplab .rtpgrid .v { text-align:right; font-weight:800; font-variant-numeric: tabular-nums; color: var(--text); }
+  #rtplab .rtpgrid .v.good { color: var(--green); }
+  #rtplab .rtpgrid .v.bad { color: var(--red); }
+  #rtplab .rtphlabel { font-size: 10px; letter-spacing:1px; color: var(--text-dim); text-transform:uppercase; margin: 12px 0 6px; }
+  #rtplab .rtphist {
+    display:flex; align-items:flex-end; gap:2px; height: 84px;
+    padding: 4px; background: rgba(0,0,0,0.25); border-radius: 8px;
+  }
+  #rtplab .rtphist .bar { flex:1; background: linear-gradient(180deg, var(--gold), var(--orange)); border-radius:2px 2px 0 0; min-height:1px; position:relative; }
+  #rtplab .rtphist .bar.zero { background: linear-gradient(180deg, #6a4a4a, #3a2222); }
+  #rtplab .rtphist .bar > i {
+    position:absolute; top:-13px; left:0; right:0; text-align:center;
+    font-size: 8px; color: var(--text-dim); font-style:normal;
+  }
+  #rtplab .rtpfoot { font-size: 10px; color: var(--text-dim); text-align:center; margin-top: 12px; }
+  #rtplab .rtpfoot b { color: var(--teal-accent); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="field"></canvas>
+  <div id="hud">
+    <div id="banner" class="panel">Green Light</div>
+    <div id="promptline">Hold to run</div>
+
+    <div id="stats" class="panel">
+      <span class="k">Alive</span><span class="v alive" id="s-alive">20</span>
+      <span class="k">Eliminated</span><span class="v dead" id="s-dead">0</span>
+      <span class="k">Your bet</span><span class="v" id="s-bet">$50</span>
+      <span class="k">Your mult</span><span class="v" id="s-mult">1.00×</span>
+      <div class="timerbar"><i id="s-timer"></i></div>
+    </div>
+
+    <div id="jarbox" class="panel">
+      <div class="jarlabel">🐷 Piggy Bank</div>
+      <div id="jar">$0</div>
+      <div class="divider"></div>
+      <div class="potlabel">Potential Win (Top 3)</div>
+      <div class="potval" id="pot">$0</div>
+      <div class="sub">Cash out now: <b id="cashnow">$50</b></div>
+    </div>
+
+    <div id="multhero" class="dim">
+      <div class="mv" id="hero-mult">1.00×</div>
+      <div class="ml">Multiplier</div>
+    </div>
+
+    <div id="controls">
+      <button id="holdpad">TAP &amp; HOLD<span class="hint">RUN ON GREEN</span></button>
+      <button id="cashout">CASH OUT<span class="cv" id="cashout-v">$50</span></button>
+    </div>
+
+    <div id="rtplab" class="panel hidden">
+      <div class="rtphead">
+        <span>🧪 RTP Lab</span>
+        <span class="rtpclose" id="rtpclose">✕</span>
+      </div>
+      <p class="rtphint">Monte-Carlo over the deterministic engine. Target RTP ≈ 0.975, avg finishers ≈ 3.</p>
+      <div class="rtpbtns">
+        <button class="rtprun" data-n="10000">Run 10,000</button>
+        <button class="rtprun" data-n="50000">Run 50,000</button>
+      </div>
+      <div id="rtpstatus" class="rtpstatus">Press a button to run.</div>
+      <div class="rtpgrid">
+        <span class="k">Realized RTP</span><span class="v" id="rtp-rtp">—</span>
+        <span class="k">Avg finishers</span><span class="v" id="rtp-fin">—</span>
+        <span class="k">Rounds</span><span class="v" id="rtp-n">—</span>
+      </div>
+      <div class="rtphlabel">Payout multiple (payout ÷ wagered) per round</div>
+      <div id="rtphist" class="rtphist"></div>
+      <div class="rtpfoot">Toggle with <b>`</b> (backtick)</div>
+    </div>
+
+    <div id="overlay">
+      <div id="card" class="panel">
+        <h1>Red Light · Green Light</h1>
+        <p class="sub">Hold to run while the light is green. The doll culls runners on red.
+          Cash out for your multiplier — or reach the doll to split the piggy bank.</p>
+        <button id="startbtn">Start Round</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { createRound, stepRound, simulateRound, runMonteCarlo, CONFIG } from './game.js';
+
+// ─── Canvas setup (DPR-aware, resize-aware) ──────────────────────────────
+const canvas = document.getElementById('field');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Perspective projection ──────────────────────────────────────────────
+// distance: 0 = start line (near/bottom/large), finishDistance = doll (far/top/small)
+// lane: signed slot offset (centered around 0), spreads players horizontally.
+const HORIZON_Y = () => H * 0.30;     // vanishing band / doll line
+const NEAR_Y    = () => H * 0.94;     // start line at bottom
+const NEAR_SPREAD = () => W * 0.46;   // half-width of lane fan at the near line
+const FAR_SPREAD  = () => W * 0.052;  // half-width at the doll
+const LANE_HALF = 5;                  // lanes span -5..+5
+
+function project(distance, lane) {
+  const t = Math.max(0, Math.min(1, distance / CONFIG.finishDistance));
+  // non-linear depth curve: things bunch up & shrink fast near the doll
+  const depth = Math.pow(t, 1.55);
+  const y = NEAR_Y() + (HORIZON_Y() - NEAR_Y()) * depth;
+  const scale = 1.0 - 0.86 * depth;            // 1.0 near -> ~0.14 at doll
+  const spread = NEAR_SPREAD() + (FAR_SPREAD() - NEAR_SPREAD()) * depth;
+  const x = W / 2 + (lane / LANE_HALF) * spread;
+  return { x, y, scale };
+}
+
+// ─── Static scene ────────────────────────────────────────────────────────
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, HORIZON_Y() + 40);
+  g.addColorStop(0, '#24403f');
+  g.addColorStop(0.55, '#3a5852');
+  g.addColorStop(1, '#7f9183');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, HORIZON_Y() + 40);
+  // hazy sun glow behind doll
+  const sun = ctx.createRadialGradient(W/2, HORIZON_Y()-10, 8, W/2, HORIZON_Y()-10, H*0.34);
+  sun.addColorStop(0, 'rgba(230,210,160,0.34)');
+  sun.addColorStop(1, 'rgba(230,210,160,0)');
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, W, HORIZON_Y() + 80);
+}
+
+function drawField() {
+  const hy = HORIZON_Y();
+  const g = ctx.createLinearGradient(0, hy, 0, H);
+  g.addColorStop(0, '#b89a6a');
+  g.addColorStop(0.5, '#917544');
+  g.addColorStop(1, '#5e4a2e');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, hy, W, H - hy);
+
+  // subtle dusty mottling
+  ctx.save();
+  ctx.globalAlpha = 0.05;
+  ctx.fillStyle = '#3a2c16';
+  for (let i = 0; i < 26; i++) {
+    const d = (i * 4.1) % CONFIG.finishDistance;
+    const p = project(d, ((i * 7) % 11) - 5);
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, 70 * p.scale + 6, 12 * p.scale + 2, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // converging lane lines
+  ctx.strokeStyle = 'rgba(245,235,210,0.16)';
+  ctx.lineWidth = 1.5;
+  for (let lane = -LANE_HALF; lane <= LANE_HALF; lane++) {
+    const a = project(0, lane), b = project(CONFIG.finishDistance, lane);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+
+  // start line (near) — thick warm bar
+  const sa = project(0, -LANE_HALF), sb = project(0, LANE_HALF);
+  ctx.strokeStyle = 'rgba(255,240,210,0.55)'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+
+  // finish line (under doll)
+  const fa = project(CONFIG.finishDistance, -LANE_HALF), fb = project(CONFIG.finishDistance, LANE_HALF);
+  ctx.strokeStyle = 'rgba(232,90,138,0.7)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(fa.x, fa.y); ctx.lineTo(fb.x, fb.y); ctx.stroke();
+}
+
+function drawTree() {
+  // dead-tree silhouette, off to the left near the horizon
+  const baseX = W * 0.16, baseY = HORIZON_Y() + 6, hgt = H * 0.30;
+  ctx.save();
+  ctx.strokeStyle = '#1c1408'; ctx.fillStyle = '#1c1408';
+  ctx.lineCap = 'round';
+  function limb(x, y, ang, len, w) {
+    if (len < 6) return;
+    const x2 = x + Math.cos(ang) * len, y2 = y - Math.sin(ang) * len;
+    ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+    limb(x2, y2, ang + 0.5, len * 0.68, w * 0.66);
+    limb(x2, y2, ang - 0.45, len * 0.66, w * 0.66);
+    if (len > 30) limb(x2, y2, ang + 0.05, len * 0.7, w * 0.7);
+  }
+  limb(baseX, baseY, Math.PI/2 + 0.04, hgt * 0.5, 11);
+  ctx.restore();
+}
+
+function drawDoll(turn) {
+  // turn: 0 = facing away (green), 1 = facing the players (red). Eased in render().
+  turn = Math.max(0, Math.min(1, turn));
+  const turned = turn > 0.5;
+  const p = project(CONFIG.finishDistance, 0);
+  const cx = p.x, baseY = p.y - 4;
+  const dollH = Math.max(96, H * 0.20);   // doll height in px (~16% of viewport)
+  const unit = dollH / 7;                 // body unit (head-to-toe ~7 units)
+  ctx.save();
+  ctx.translate(cx, baseY);
+  // squash horizontally as she rotates through 90° (mid-turn = thin), giving the
+  // snap-around read instead of an instant flip.
+  const squash = 0.35 + 0.65 * Math.abs(turn * 2 - 1);
+  ctx.scale(squash, 1);
+
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(0, 0, unit*1.5, unit*0.4, 0, 0, Math.PI*2); ctx.fill();
+
+  // legs
+  ctx.strokeStyle = '#d8b48a'; ctx.lineWidth = unit*0.42; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-unit*0.45, -unit*0.2); ctx.lineTo(-unit*0.45, -unit*2.2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(unit*0.45, -unit*0.2); ctx.lineTo(unit*0.45, -unit*2.2); ctx.stroke();
+
+  // dress (orange)
+  ctx.fillStyle = '#e8622a';
+  ctx.beginPath();
+  ctx.moveTo(-unit*0.5, -unit*2.0);
+  ctx.lineTo(unit*0.5, -unit*2.0);
+  ctx.lineTo(unit*1.35, -unit*2.0 - unit*0.1);
+  ctx.lineTo(unit*0.55, -unit*5.0);
+  ctx.lineTo(-unit*0.55, -unit*5.0);
+  ctx.lineTo(-unit*1.35, -unit*2.0 - unit*0.1);
+  ctx.closePath(); ctx.fill();
+  // dress shading
+  ctx.fillStyle = 'rgba(150,40,10,0.28)';
+  ctx.beginPath();
+  ctx.moveTo(0,-unit*2.0); ctx.lineTo(unit*1.35,-unit*2.1); ctx.lineTo(unit*0.55,-unit*5.0); ctx.lineTo(0,-unit*5.0);
+  ctx.closePath(); ctx.fill();
+
+  // arms
+  ctx.strokeStyle = '#f0d2a8'; ctx.lineWidth = unit*0.30;
+  ctx.beginPath(); ctx.moveTo(-unit*0.9,-unit*4.5); ctx.lineTo(-unit*1.3,-unit*3.3); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(unit*0.9,-unit*4.5); ctx.lineTo(unit*1.3,-unit*3.3); ctx.stroke();
+
+  // neck + head (pale)
+  ctx.fillStyle = '#f3dcbb';
+  ctx.fillRect(-unit*0.22, -unit*5.4, unit*0.44, unit*0.5);
+  ctx.beginPath(); ctx.arc(0, -unit*6.2, unit*0.95, 0, Math.PI*2); ctx.fill();
+
+  // hair / pigtails (dark brown)
+  ctx.fillStyle = '#2a1c0e';
+  ctx.beginPath(); ctx.arc(0,-unit*6.45, unit*0.98, Math.PI*1.05, Math.PI*1.95); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-unit*1.05,-unit*6.2, unit*0.4, unit*0.7, 0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(unit*1.05,-unit*6.2, unit*0.4, unit*0.7, 0,0,Math.PI*2); ctx.fill();
+
+  // face — eyes face forward (toward camera/players) on RED, away on green
+  if (turned) {
+    // glowing red eyes — the muzzles. Hotter the more she's locked on.
+    const glow = Math.max(0, turn * 2 - 1);              // 0 at half-turn → 1 fully faced
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,40,30,0.95)';
+    ctx.shadowBlur = unit * (0.5 + glow * 1.4);
+    ctx.fillStyle = `rgb(255,${Math.round(70 - 50*glow)},${Math.round(50 - 35*glow)})`;
+    ctx.beginPath(); ctx.arc(-unit*0.34,-unit*6.2, unit*0.15, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(unit*0.34,-unit*6.2, unit*0.15, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+    // hot pinpoint pupils
+    ctx.fillStyle = '#fff2c0';
+    ctx.beginPath(); ctx.arc(-unit*0.34,-unit*6.2, unit*0.05, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(unit*0.34,-unit*6.2, unit*0.05, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#b03020'; ctx.lineWidth = unit*0.07;
+    ctx.beginPath(); ctx.arc(0,-unit*5.85, unit*0.22, 0.1, Math.PI-0.1); ctx.stroke();
+  } else {
+    // back of head — bun
+    ctx.fillStyle = '#22160a';
+    ctx.beginPath(); ctx.arc(0,-unit*6.2, unit*0.5, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── Avatars ─────────────────────────────────────────────────────────────
+const PLAYER_TINTS = [];
+function tintFor(id) {
+  if (PLAYER_TINTS[id]) return PLAYER_TINTS[id];
+  const hue = (id * 47 + 20) % 360;
+  PLAYER_TINTS[id] = { body: `hsl(${hue},58%,52%)`, dark: `hsl(${hue},55%,34%)` };
+  return PLAYER_TINTS[id];
+}
+
+function drawAvatar(p) {
+  const pr = project(p.distance, p.lane);
+  const s = pr.scale;
+  const h = 56 * s;                 // figure height
+  const w = 20 * s;
+  const x = pr.x, y = pr.y;
+  const tint = tintFor(p.id);
+  const isShot = p.status === 'eliminated';
+  const isTimeout = p.status === 'timedout';
+  // A shot player stays standing — frozen, caught moving — until their eye-bullet
+  // lands and stamps deathT; ONLY THEN do they collapse. Timed-out players (never
+  // shot) just drop. This is what makes the mass death stagger instead of snap.
+  const dead = isTimeout || (isShot && p.deathT != null);
+  const cashed = p.status === 'cashed';
+  const finished = p.status === 'finished';
+
+  ctx.save();
+
+  // ground shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath(); ctx.ellipse(x, y, w*0.7, w*0.26, 0, 0, Math.PI*2); ctx.fill();
+
+  if (dead) {
+    // collapse: flop from standing (90°) down to flat (0°) over ~0.45s, with a
+    // small overshoot bounce; the × fades in as the body settles.
+    const age = (p.deathT != null) ? (animClock - p.deathT) : 1;
+    const fall = Math.min(1, age / 0.45);
+    const eased = 1 - Math.pow(1 - fall, 3);               // easeOutCubic
+    const bounce = fall < 1 ? Math.sin(fall * Math.PI) * 0.12 : 0;
+    const upright = (1 - eased);                           // 1 = standing, 0 = flat
+    ctx.translate(x, y);
+    // a little death pop on the first couple frames
+    if (age < 0.12) {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(255,80,80,0.5)';
+      ctx.beginPath(); ctx.arc(0, -h*0.4, (h*0.5) * (age/0.12) + 4, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 0.85;
+    // interpolate body orientation: standing (leaning) -> flat ellipse
+    const bodyAng = upright * (Math.PI/2) + bounce;        // radians of "lean"
+    ctx.save();
+    ctx.rotate(-bodyAng);
+    ctx.fillStyle = tint.dark;
+    ctx.beginPath(); ctx.ellipse(0, -h*0.12, h*0.42, w*0.34, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#e8d8c0';
+    ctx.beginPath(); ctx.arc(h*0.42, -h*0.12, w*0.34, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+    // red × fades in once mostly down
+    ctx.globalAlpha = Math.max(0, (fall - 0.4) / 0.6);
+    ctx.strokeStyle = '#ff3b3b'; ctx.lineWidth = Math.max(2, 3*s); ctx.lineCap='round';
+    const xs = Math.max(7, h*0.28);
+    ctx.beginPath(); ctx.moveTo(-xs*0.4, -h*0.12-xs*0.5); ctx.lineTo(-xs*0.4+xs, -h*0.12+xs*0.5);
+    ctx.moveTo(-xs*0.4+xs, -h*0.12-xs*0.5); ctx.lineTo(-xs*0.4, -h*0.12+xs*0.5); ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  // human glow ring
+  if (p.isHuman) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(63,208,201,0.9)'; ctx.shadowBlur = 22*s + 8;
+    ctx.strokeStyle = 'rgba(63,208,201,0.9)'; ctx.lineWidth = Math.max(2, 3*s);
+    ctx.beginPath(); ctx.ellipse(x, y, w*0.95, w*0.36, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+  // finisher gold halo
+  if (finished) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,207,92,0.9)'; ctx.shadowBlur = 20*s + 6;
+    ctx.strokeStyle = 'rgba(255,207,92,0.95)'; ctx.lineWidth = Math.max(2, 2.5*s);
+    ctx.beginPath(); ctx.arc(x, y - h*0.85, w*0.55, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.translate(x, y);
+  ctx.globalAlpha = cashed ? 0.6 : 1;
+
+  // legs — gait amplitude eases toward the moving target so a stop winds the
+  // stride down and a start winds it up, instead of snapping on/off on a dime.
+  ctx.strokeStyle = tint.dark; ctx.lineWidth = Math.max(1.5, w*0.22); ctx.lineCap='round';
+  if (p._gait === undefined) p._gait = p.moving ? 1 : 0;
+  p._gait += ((p.moving ? 1 : 0) - p._gait) * Math.min(1, lastDT * 9);
+  const stride = Math.sin(animClock*8 + p.id) * w*0.3 * p._gait;
+  ctx.beginPath(); ctx.moveTo(-w*0.18, -h*0.30); ctx.lineTo(-w*0.18 - stride, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(w*0.18, -h*0.30); ctx.lineTo(w*0.18 + stride, 0); ctx.stroke();
+
+  // body
+  ctx.fillStyle = cashed ? '#5a6e6c' : tint.body;
+  roundRect(-w*0.4, -h*0.78, w*0.8, h*0.52, w*0.25); ctx.fill();
+  // rim light (warm)
+  ctx.fillStyle = 'rgba(255,210,150,0.22)';
+  roundRect(w*0.06, -h*0.78, w*0.34, h*0.52, w*0.2); ctx.fill();
+
+  // head
+  ctx.fillStyle = '#f0dcc2';
+  ctx.beginPath(); ctx.arc(0, -h*0.88, w*0.32, 0, Math.PI*2); ctx.fill();
+
+  // cashed = teal checkmark badge
+  if (cashed) {
+    ctx.strokeStyle = '#3fd0c9'; ctx.lineWidth = Math.max(1.5,2*s); ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-w*0.2,-h*0.5); ctx.lineTo(-w*0.02,-h*0.34); ctx.lineTo(w*0.28,-h*0.66); ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // label: name + multiplier (only when reasonably large / important)
+  if (s > 0.30 || p.isHuman) {
+    ctx.save();
+    const fs = Math.max(9, 12 * s);
+    ctx.font = `700 ${fs}px 'Trebuchet MS', sans-serif`;
+    ctx.textAlign = 'center';
+    const label = `${p.name} ${p.multiplier.toFixed(2)}×`;
+    const ly = y - h - 6 - (finished ? w*0.7 : 0);
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeText(label, x, ly);
+    ctx.fillStyle = p.isHuman ? '#7af0e8' : (finished ? '#ffcf5c' : '#eef3f2');
+    ctx.fillText(label, x, ly);
+    ctx.restore();
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+
+// ─── Lane assignment (stable per player) ─────────────────────────────────
+function assignLanes(state) {
+  // spread 20 players across lanes -5..+5; keep stable across ticks
+  const n = state.players.length;
+  state.players.forEach((p, i) => {
+    if (p.lane === undefined) {
+      // deterministic-ish spread: interleave so neighbors aren't adjacent
+      const frac = i / Math.max(1, n - 1); // 0..1 (guard n===1)
+      p.lane = (frac * 2 - 1) * LANE_HALF; // -5..+5
+    }
+  });
+}
+
+// ─── Sound hook (no-op) ──────────────────────────────────────────────────
+function playSound(/* name */) { /* no-op hook for future audio */ }
+
+// ─── Cash-drain particle pool (bills + coins) ────────────────────────────
+// Particles arc from a dying avatar toward the piggy jar over ~0.8s, with
+// easing, gravity wobble, and rotation. This is the hero VFX moment.
+const DRAIN_DUR = 0.8;                 // seconds per particle flight
+const particles = [];                  // active particle pool
+let lastDT = 1 / 60;
+
+function piggyScreenPos() {
+  // center of the jar widget, in CSS px (canvas uses CSS px after DPR transform)
+  const jb = el('jarbox').getBoundingClientRect();
+  return { x: jb.left + jb.width * 0.5, y: jb.top + jb.height * 0.52 };
+}
+
+function spawnCashDrain(from, to, amount) {
+  // particle count scales (gently) with the cash amount, clamped for perf
+  const count = Math.max(7, Math.min(16, Math.round(amount / 7)));
+  for (let i = 0; i < count; i++) {
+    const isCoin = Math.random() < 0.42;
+    // eruption: each particle bursts out of the body before homing on the jar
+    const eruptAng = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+    const eruptSpd = 60 + Math.random() * 140;
+    particles.push({
+      x0: from.x, y0: from.y,
+      // a control point above & toward the jar gives the arc its lob
+      cx: (from.x + to.x) / 2 + (Math.random() - 0.5) * 120,
+      cy: Math.min(from.y, to.y) - (90 + Math.random() * 120),
+      tx: to.x + (Math.random() - 0.5) * 26,
+      ty: to.y + (Math.random() - 0.5) * 20,
+      vx: Math.cos(eruptAng) * eruptSpd,    // initial eruption velocity (eased out)
+      vy: Math.sin(eruptAng) * eruptSpd,
+      t: -Math.random() * 0.12,             // small stagger so the burst trails
+      dur: DRAIN_DUR * (0.85 + Math.random() * 0.3),
+      rot: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 14,
+      size: isCoin ? (7 + Math.random() * 4) : (10 + Math.random() * 6),
+      isCoin,
+      flip: Math.random() * Math.PI * 2,
+      flipSpd: 6 + Math.random() * 6,
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.t += dt;
+    if (p.t >= p.dur) {
+      particles.splice(i, 1);
+      jarArrivals++;            // signal a coin landed → pulse the jar
+      continue;
+    }
+    p.rot += p.spin * dt;
+    p.flip += p.flipSpd * dt;
+  }
+}
+
+function easeInOutCubic(x) {
+  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    if (p.t < 0) continue;
+    const raw = p.t / p.dur;
+    const e = easeInOutCubic(Math.max(0, Math.min(1, raw)));
+    // quadratic bezier (start → control → jar) for the lobbed arc
+    const mt = 1 - e;
+    let x = mt * mt * p.x0 + 2 * mt * e * p.cx + e * e * p.tx;
+    let y = mt * mt * p.y0 + 2 * mt * e * p.cy + e * e * p.ty;
+    // eruption burst dominates the first ~15% then fades, plus gravity wobble
+    const burst = Math.max(0, 0.15 - raw) / 0.15;
+    x += p.vx * raw * burst;
+    y += p.vy * raw * burst + Math.sin(p.flip * 0.5) * 4;
+    const fade = raw > 0.85 ? (1 - raw) / 0.15 : 1;
+    const sz = p.size * (1 - 0.35 * e);
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.globalAlpha = Math.max(0, fade);
+    if (p.isCoin) {
+      // glinting coin — squash on flip axis to fake a spinning disc
+      const sq = Math.abs(Math.cos(p.flip));
+      ctx.scale(1, 0.35 + 0.65 * sq);
+      const g = ctx.createRadialGradient(-sz * 0.3, -sz * 0.3, 1, 0, 0, sz);
+      g.addColorStop(0, '#fff6c8');
+      g.addColorStop(0.5, '#ffcf5c');
+      g.addColorStop(1, '#c98a18');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, 0, sz, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(180,120,20,0.8)'; ctx.lineWidth = 1.2;
+      ctx.stroke();
+      // glint
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.arc(-sz * 0.32, -sz * 0.32, sz * 0.22, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // tumbling bill
+      ctx.rotate(p.rot);
+      const flip = Math.cos(p.flip);
+      ctx.scale(1, Math.max(0.25, Math.abs(flip)));
+      const w = sz * 1.7, h = sz;
+      ctx.fillStyle = flip > 0 ? '#7bd99a' : '#4ea874';
+      roundRect(-w / 2, -h / 2, w, h, 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(20,70,40,0.55)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = 'rgba(20,80,45,0.85)';
+      ctx.beginPath(); ctx.arc(0, 0, h * 0.26, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(220,255,235,0.7)';
+      ctx.font = `700 ${Math.round(h * 0.5)}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('$', 0, h * 0.04);
+    }
+    ctx.restore();
+  }
+}
+
+// ─── Doll eye-bullets ─────────────────────────────────────────────────────
+// On a red verdict the doll fires a glowing round at each victim from her eyes.
+// IMPACT (not the verdict tick) is what drops the body + drains the cash, so a
+// mass kill unspools over ~1–2s of staggered hits instead of snapping flat.
+const bullets = [];
+
+function dollEyePos() {
+  const p = project(CONFIG.finishDistance, 0);
+  const dollH = Math.max(96, H * 0.20);
+  const unit = dollH / 7;
+  return { x: p.x, y: (p.y - 4) - unit * 6.2 };   // between the eyes
+}
+
+function updateBullets(dt) {
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.t += dt;
+    if (b.t < b.dur) continue;
+    bullets.splice(i, 1);
+    // impact → collapse + cash drain for this specific victim
+    const p = state && state.players.find(pl => pl.id === b.targetId);
+    if (p && p.deathT == null) {
+      p.deathT = animClock;
+      const pr = project(p.distance, p.lane);
+      spawnCashDrain({ x: pr.x, y: pr.y - 18 * pr.scale }, piggyScreenPos(), p.bet);
+    }
+    shakeMag = Math.min(18, shakeMag + 5);
+    redFlashAlpha = 0.9;
+    playSound('hit');
+  }
+}
+
+function drawBullets() {
+  for (const b of bullets) {
+    if (b.t < 0) continue;
+    const e = Math.min(1, b.t / b.dur);
+    const x = b.x0 + (b.tx - b.x0) * e;
+    const y = b.y0 + (b.ty - b.y0) * e;
+    const e2 = Math.max(0, e - 0.14);
+    const x2 = b.x0 + (b.tx - b.x0) * e2;
+    const y2 = b.y0 + (b.ty - b.y0) * e2;
+    ctx.save();
+    // tracer trail (fades back toward the eye)
+    const g = ctx.createLinearGradient(x2, y2, x, y);
+    g.addColorStop(0, 'rgba(255,60,30,0)');
+    g.addColorStop(1, 'rgba(255,100,50,0.75)');
+    ctx.strokeStyle = g; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x, y); ctx.stroke();
+    // hot round
+    ctx.shadowColor = 'rgba(255,40,30,0.95)'; ctx.shadowBlur = 12;
+    ctx.fillStyle = '#ff5a3c';
+    ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff2c0';
+    ctx.beginPath(); ctx.arc(x, y, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ─── Render frame ────────────────────────────────────────────────────────
+let animClock = 0;
+let redFlashAlpha = 0;
+let jarArrivals = 0;          // particle arrivals pending → jar pulse + total catch-up
+let shakeMag = 0;             // current screen-shake magnitude (px)
+let dollTurn = 0;             // 0 = facing away (green), 1 = facing players (red)
+let dollTurnTarget = 0;
+let bannerRedHold = 0;        // frames to hold the red banner past the tick
+let prevRenderLight = 'green';// light the previous rendered frame saw (onset detect)
+let onsetStrobe = 0;          // hard red strobe fired the frame red first appears
+
+function render(state) {
+  ctx.clearRect(0, 0, W, H);
+
+  // ── instant red ONSET: the bots freeze the very tick red logic fires, so the
+  // LIGHT has to read as red on that same frame — otherwise the doll is still
+  // mid-turn while they're already stopped and it looks like the AI cheated. On
+  // the onset frame we snap her fully around, punch the vignette, and strobe. ──
+  if (state.light === 'red' && prevRenderLight !== 'red') {
+    dollTurn = 1;            // she's already facing you the instant red hits
+    redFlashAlpha = 1;       // vignette at full on the freeze frame
+    onsetStrobe = 1;         // hard red flash
+  }
+  prevRenderLight = state.light;
+
+  // ── ease the doll's head-turn toward its target. Red is an instant snap (above);
+  // this only animates the soft turn-AWAY when green resumes. ──
+  dollTurnTarget = state.light === 'red' ? 1 : 0;
+  dollTurn += (dollTurnTarget - dollTurn) * Math.min(1, lastDT * 16);
+  if (Math.abs(dollTurnTarget - dollTurn) < 0.01) dollTurn = dollTurnTarget;
+
+  // ── screen shake: jitter the whole field while shakeMag is non-trivial ──
+  ctx.save();
+  if (shakeMag > 0.3) {
+    const sx = (Math.random() - 0.5) * shakeMag;
+    const sy = (Math.random() - 0.5) * shakeMag;
+    ctx.translate(sx, sy);
+    shakeMag *= 0.86;
+  } else {
+    shakeMag = 0;
+  }
+
+  drawSky();
+  drawField();
+  drawTree();
+  drawDoll(dollTurn);
+
+  // draw avatars sorted far->near so near ones overlap
+  const order = state.players.slice().sort((a, b) => b.distance - a.distance);
+  for (const p of order) drawAvatar(p);
+  ctx.restore();
+
+  // ── red flash vignette, intensity coupled to the doll's turn ──
+  if (state.light === 'red') redFlashAlpha = Math.max(redFlashAlpha, 0.62);
+  // also pulse with how far she's turned around (so the flash crests as she faces us)
+  const vig = Math.max(redFlashAlpha, dollTurn * 0.5);
+  if (vig > 0.01) {
+    ctx.save();
+    const v = ctx.createRadialGradient(W/2, H*0.55, H*0.12, W/2, H*0.55, H*0.92);
+    v.addColorStop(0, 'rgba(255,40,40,0)');
+    v.addColorStop(0.62, `rgba(255,30,30,${vig * 0.35})`);
+    v.addColorStop(1, `rgba(190,8,8,${vig})`);
+    ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+    // top/bottom red bars for a heavier "she's looking" mood
+    ctx.fillStyle = `rgba(255,30,30,${vig * 0.18})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    redFlashAlpha *= 0.90;
+  }
+
+  // ── onset strobe: a hard red wash on the freeze frame, gone in ~5 frames. This
+  // is what makes "RED" unmistakable at the exact instant the bots stop. ──
+  if (onsetStrobe > 0.02) {
+    ctx.save();
+    ctx.fillStyle = `rgba(255,36,30,${onsetStrobe * 0.5})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    onsetStrobe *= 0.78;
+  } else onsetStrobe = 0;
+
+  // eye-bullets fly over the field, under the HUD cash particles
+  drawBullets();
+  // cash particles render on top of everything (they fly into the HUD jar)
+  drawParticles();
+}
+
+// ─── HUD update ──────────────────────────────────────────────────────────
+const el = (id) => document.getElementById(id);
+const fmt = (n) => '$' + Math.round(n).toLocaleString();
+
+let jarShown = 0;
+function updateHUD(state) {
+  const human = state.players.find(p => p.isHuman);
+  const alive = state.players.filter(p => p.status === 'running').length;
+  const dead = state.players.filter(p => p.status === 'eliminated' || p.status === 'timedout').length;
+
+  el('s-alive').textContent = alive;
+  el('s-dead').textContent = dead;
+  el('s-bet').textContent = fmt(human.bet);
+  el('s-mult').textContent = human.multiplier.toFixed(2) + '×';
+  el('s-timer').style.width = Math.min(100, (state.tick / CONFIG.ticksPerRound) * 100) + '%';
+
+  // banner — atmospheric mood, NOT a reaction cue. Hold RED briefly after the
+  // tick so the "she turned" beat reads even between flash ticks.
+  const banner = el('banner');
+  if (state.light === 'red') bannerRedHold = 14;
+  if (bannerRedHold > 0) {
+    bannerRedHold--;
+    banner.textContent = '◉  RED LIGHT  ◉';
+    banner.classList.add('red');
+    el('promptline').textContent = 'FREEZE — she is watching';
+  } else {
+    banner.textContent = 'GREEN LIGHT';
+    banner.classList.remove('red');
+    el('promptline').textContent = 'Hold to run';
+  }
+
+  // piggy jar (gross forfeits). The displayed total lags state.forfeits and is
+  // pulled UP as cash particles ARRIVE (jarArrivals), so the bills visibly
+  // "land" in the jar. Each arrival also pulses + flashes the widget.
+  const jb = el('jarbox');
+  const outstanding = state.forfeits - jarShown;
+  if (jarArrivals > 0 && outstanding > 0.5) {
+    // distribute the outstanding amount across the in-flight + just-arrived bills
+    const denom = Math.max(1, particles.length + jarArrivals);
+    const inc = outstanding * (jarArrivals / denom);
+    jarShown += inc;
+    jb.classList.remove('pulse'); void jb.offsetWidth; jb.classList.add('pulse');
+    jb.classList.add('flash');
+  } else if (particles.length === 0 && outstanding > 0.5) {
+    // no particles in flight (e.g. forced state) — ease up so totals reconcile
+    jarShown += outstanding * 0.3;
+  }
+  jarArrivals = 0;
+  if (Math.abs(state.forfeits - jarShown) < 0.5) jarShown = state.forfeits;
+  if (particles.length === 0 && jb.classList.contains('flash')) jb.classList.remove('flash');
+  el('jar').textContent = fmt(jarShown);
+
+  // potential win (top-3 net projection)
+  const projectedFinishers = Math.max(1,
+    state.players.filter(p => p.status === 'running' && p.wantsFinish).length);
+  const netPot = Math.max(0, (state.prizePool - state.baseMultSoFar) / projectedFinishers);
+  el('pot').textContent = fmt(netPot);
+
+  // cash-out / cash-now values
+  const cashVal = human.bet * human.multiplier;
+  el('cashnow').textContent = fmt(cashVal);
+  el('cashout-v').textContent = fmt(cashVal);
+
+  // multiplier hero
+  el('hero-mult').textContent = human.multiplier.toFixed(2) + '×';
+  el('multhero').classList.toggle('dim', human.status !== 'running');
+
+  // disable controls when human terminal
+  const terminal = human.status !== 'running';
+  el('holdpad').disabled = terminal;
+  el('cashout').disabled = terminal;
+}
+
+// ─── Input state ─────────────────────────────────────────────────────────
+const input = { holding: false, cashOut: false };
+const holdpad = el('holdpad');
+const cashoutBtn = el('cashout');
+
+function press(e) { if (holdpad.disabled) return; input.holding = true; holdpad.classList.add('held'); e.preventDefault(); }
+function release(e) { input.holding = false; holdpad.classList.remove('held'); if (e) e.preventDefault(); }
+holdpad.addEventListener('pointerdown', press);
+holdpad.addEventListener('pointerup', release);
+holdpad.addEventListener('pointerleave', release);
+holdpad.addEventListener('pointercancel', release);
+// keyboard convenience: space = hold
+window.addEventListener('keydown', (e) => { if (e.code === 'Space' && !e.repeat) { input.holding = !holdpad.disabled; holdpad.classList.toggle('held', input.holding); e.preventDefault(); } });
+window.addEventListener('keyup', (e) => { if (e.code === 'Space') release(); });
+
+cashoutBtn.addEventListener('pointerdown', (e) => { if (!cashoutBtn.disabled) { input.cashOut = true; } e.preventDefault(); });
+
+// ─── Round driver (RAF + fixed timestep accumulator) ─────────────────────
+const TICK_HZ = 20;
+const TICK_MS = 1000 / TICK_HZ;
+let state = null;
+let running = false;
+let frozen = false;          // debug freeze-frame (halts particle/anim advance)
+let seed = 1;
+let acc = 0, lastT = 0;
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (!lastT) lastT = now;
+  let dt = now - lastT; lastT = now;
+  if (frozen) { lastT = now; return; }     // hold the frozen frame for screenshots
+  const dtS = Math.min(0.05, dt / 1000);   // clamp for tab-switch hitches
+  lastDT = dtS;
+  animClock += dt / 1000;
+
+  if (running && state && !state.done) {
+    acc += dt;
+    if (acc > 250) acc = 250; // avoid spiral after tab switch
+    while (acc >= TICK_MS) {
+      const tickInput = { holding: input.holding, cashOut: input.cashOut };
+      input.cashOut = false;       // consume one-shot
+      stepRound(state, tickInput);
+      if (state.redFlash && state.redFlash.length) onEliminations(state, state.redFlash);
+      acc -= TICK_MS;
+      if (state.done) { onRoundOver(); break; }
+    }
+  }
+  // bullets, particles & jar arrivals advance on real frame time (not ticks)
+  updateBullets(dtS);
+  updateParticles(dtS);
+  if (state) { render(state); updateHUD(state); }
+}
+
+// Newly-killed players: the doll opens fire. Each victim takes an eye-bullet on
+// a short stagger; the collapse + cash drain fire on IMPACT (see updateBullets),
+// so the mass death lands as a drawn-out volley, not an instant flop.
+function onEliminations(state, ids) {
+  const eye = dollEyePos();
+  ids.forEach((id, i) => {
+    const p = state.players.find(pl => pl.id === id);
+    if (!p) return;
+    const pr = project(p.distance, p.lane);
+    bullets.push({
+      x0: eye.x, y0: eye.y,
+      tx: pr.x, ty: pr.y - 22 * pr.scale,
+      t: -(i * 0.11 + Math.random() * 0.07),   // stagger the volley
+      dur: 0.24 + Math.random() * 0.16,         // flight time per round
+      targetId: id,
+    });
+  });
+  if (ids.length) {
+    shakeMag = Math.min(14, shakeMag + 3);      // muzzle jolt; impacts add more
+    redFlashAlpha = 0.8;
+    playSound('shots');
+  }
+}
+requestAnimationFrame(loop);
+
+// ─── Round lifecycle ─────────────────────────────────────────────────────
+function startRound() {
+  frozen = false;
+  state = createRound(seed++, CONFIG);
+  assignLanes(state);
+  jarShown = 0; redFlashAlpha = 0;
+  particles.length = 0; bullets.length = 0; jarArrivals = 0; shakeMag = 0;
+  dollTurn = 0; dollTurnTarget = 0; bannerRedHold = 0;
+  prevRenderLight = 'green'; onsetStrobe = 0;
+  el('jarbox').classList.remove('flash');
+  input.holding = false; input.cashOut = false;
+  holdpad.classList.remove('held');
+  el('overlay').classList.add('hidden');
+  running = true;
+  lastT = 0; acc = 0;
+}
+
+function onRoundOver() {
+  running = false;
+  const human = state.players.find(p => p.isHuman);
+  const finisherCount = state.finishers ? state.finishers.length : 0;
+  const baseWin = (human.status === 'cashed' || human.status === 'finished') ? human.bet * human.multiplier : 0;
+  let residualShare = 0;
+  if (human.status === 'finished' && finisherCount > 0) residualShare = state.residual / finisherCount;
+  const total = human.payout; // settleRound already computed exact payout
+
+  const won = total > human.bet;
+  const outMap = {
+    cashed: 'CASHED OUT', finished: 'REACHED THE DOLL',
+    eliminated: 'ELIMINATED', timedout: 'TIMED OUT'
+  };
+
+  let rows = '';
+  if (human.status === 'finished') {
+    rows = `
+      <div class="row"><span>Base (bet × ${human.multiplier.toFixed(2)}×)</span><b>${fmt(baseWin)}</b></div>
+      <div class="row"><span>Piggy share (1 of ${finisherCount})</span><b>${fmt(residualShare)}</b></div>
+      <div class="row"><span>Total payout</span><b>${fmt(total)}</b></div>`;
+  } else if (human.status === 'cashed') {
+    rows = `
+      <div class="row"><span>Cashed at</span><b>${human.multiplier.toFixed(2)}×</b></div>
+      <div class="row"><span>Payout</span><b>${fmt(total)}</b></div>`;
+  } else {
+    rows = `
+      <div class="row"><span>Your stake</span><b>${fmt(human.bet)}</b></div>
+      <div class="row"><span>Payout</span><b>${fmt(0)}</b></div>`;
+  }
+
+  const card = el('card');
+  card.innerHTML = `
+    <h1>Round Over</h1>
+    <div class="outcome ${won ? 'win' : 'lose'}">${outMap[human.status] || human.status.toUpperCase()}</div>
+    <div class="breakdown">
+      ${rows}
+      <div class="row" style="margin-top:8px;opacity:0.8"><span>Finishers this round</span><b>${finisherCount}</b></div>
+      <div class="row" style="opacity:0.8"><span>Piggy bank (gross)</span><b>${fmt(state.forfeits)}</b></div>
+    </div>
+    <button id="startbtn">Next Round</button>`;
+  el('startbtn').addEventListener('click', startRound);
+  el('overlay').classList.remove('hidden');
+}
+
+// initial start button
+el('startbtn').addEventListener('click', startRound);
+
+// ─── Task 12: RTP Lab debug panel ────────────────────────────────────────
+const rtplab = el('rtplab');
+let rtpRunning = false;
+
+function toggleRtpLab(forceOpen) {
+  const open = forceOpen != null ? forceOpen : rtplab.classList.contains('hidden');
+  rtplab.classList.toggle('hidden', !open);
+}
+window.addEventListener('keydown', (e) => {
+  // backtick / tilde toggles the lab (ignore when typing in an input)
+  if ((e.key === '`' || e.key === '~') && e.target.tagName !== 'INPUT') {
+    toggleRtpLab(); e.preventDefault();
+  }
+  if (e.key === 'Escape' && !rtplab.classList.contains('hidden')) toggleRtpLab(false);
+});
+el('rtpclose').addEventListener('click', () => toggleRtpLab(false));
+
+// Histogram buckets over payout-multiple (payout / wagered) per round.
+const HIST_EDGES = [0, 0.25, 0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0, Infinity];
+const HIST_LABELS = ['0', '¼', '½', '¾', '.9', '1', '1.1', '1¼', '1½', '2+'];
+
+function bucketOf(mult) {
+  for (let i = 0; i < HIST_EDGES.length - 1; i++) {
+    if (mult < HIST_EDGES[i + 1]) return i;
+  }
+  return HIST_EDGES.length - 2;
+}
+
+function renderHist(counts) {
+  const max = Math.max(1, ...counts);
+  const host = el('rtphist');
+  host.innerHTML = counts.map((c, i) => {
+    const pct = Math.round((c / max) * 100);
+    const isZero = HIST_LABELS[i] === '0';
+    return `<div class="bar${isZero ? ' zero' : ''}" style="height:${Math.max(1, pct)}%" title="${HIST_LABELS[i]}: ${c}"><i>${HIST_LABELS[i]}</i></div>`;
+  }).join('');
+}
+
+async function runRtpLab(N) {
+  if (rtpRunning) return;
+  rtpRunning = true;
+  document.querySelectorAll('.rtprun').forEach(b => b.disabled = true);
+  el('rtp-rtp').className = 'v'; el('rtp-fin').className = 'v';
+  el('rtp-rtp').textContent = '—'; el('rtp-fin').textContent = '—'; el('rtp-n').textContent = '—';
+
+  const counts = new Array(HIST_LABELS.length).fill(0);
+  let wagered = 0, payout = 0, finishers = 0, done = 0;
+  const baseSeed = 1;
+  const CHUNK = 1000;
+  const t0 = performance.now();
+
+  while (done < N) {
+    const end = Math.min(N, done + CHUNK);
+    for (; done < end; done++) {
+      const r = simulateRound(baseSeed + done, CONFIG);
+      wagered += r.wagered;
+      payout += r.totalPayout;
+      finishers += r.finishers.length;
+      counts[bucketOf(r.totalPayout / r.wagered)]++;
+    }
+    const pct = Math.round((done / N) * 100);
+    el('rtpstatus').textContent = `running… ${done.toLocaleString()} / ${N.toLocaleString()} (${pct}%)`;
+    renderHist(counts);
+    // yield to the browser so the "running…" state paints
+    await new Promise(requestAnimationFrame);
+  }
+
+  const rtp = payout / wagered;
+  const avgFin = finishers / N;
+  const ms = Math.round(performance.now() - t0);
+
+  const rtpEl = el('rtp-rtp');
+  rtpEl.textContent = (rtp * 100).toFixed(2) + '%';
+  rtpEl.className = 'v ' + ((rtp >= 0.965 && rtp <= 0.985) ? 'good' : 'bad');
+  const finEl = el('rtp-fin');
+  finEl.textContent = avgFin.toFixed(2);
+  finEl.className = 'v ' + ((avgFin >= 2 && avgFin <= 4) ? 'good' : 'bad');
+  el('rtp-n').textContent = N.toLocaleString();
+  el('rtpstatus').textContent = `done — ${N.toLocaleString()} rounds in ${ms} ms`;
+  renderHist(counts);
+
+  rtpRunning = false;
+  document.querySelectorAll('.rtprun').forEach(b => b.disabled = false);
+}
+document.querySelectorAll('.rtprun').forEach(b =>
+  b.addEventListener('click', () => runRtpLab(parseInt(b.dataset.n, 10))));
+
+// expose for preview/testing
+window.__game = {
+  get state() { return state; },
+  get particles() { return particles; },
+  hold(v) { input.holding = !!v; holdpad.classList.toggle('held', !!v && !holdpad.disabled); },
+  cash() { input.cashOut = true; },
+  start: startRound,
+  step(n = 1) { for (let i=0;i<n && state && !state.done;i++) { stepRound(state, { holding: input.holding, cashOut: input.cashOut }); if (state.redFlash && state.redFlash.length) onEliminations(state, state.redFlash); input.cashOut=false; if(state.done) onRoundOver(); } },
+  // Inject a red phase starting now (for demoing the VFX).
+  forceRed(dur) {
+    if (!state) return;
+    const d = dur || (CONFIG.redDurMin + Math.floor(Math.random() * (CONFIG.redDurMax - CONFIG.redDurMin)));
+    state.redPhases.push({ start: state.tick, end: state.tick + d });
+    return state.tick;
+  },
+  // Directly erupt a cash drain from a player's body to the jar (screenshot helper).
+  drainFrom(id, amount = 50) {
+    if (!state) return;
+    const p = state.players.find(pl => pl.id === id) || state.players[1];
+    const pr = project(p.distance, p.lane);
+    spawnCashDrain({ x: pr.x, y: pr.y - 18 * pr.scale }, piggyScreenPos(), amount);
+  },
+  openLab() { toggleRtpLab(true); },
+  // Freeze-frame the cash-drain mid-arc for a deterministic screenshot:
+  // halts the loop, pins every particle to `progress` of its flight, forces the
+  // red light + fully-turned doll + red vignette, and renders one static frame.
+  freezeMidDrain(progress = 0.5, spread = 0) {
+    running = false;
+    frozen = true;
+    // spread>0 distributes particles ACROSS the arc (continuous stream look);
+    // spread==0 pins them all to the same progress.
+    particles.forEach((p, i) => {
+      const frac = spread > 0
+        ? Math.max(0.02, Math.min(0.95, progress + (((i * 0.137) % 1) - 0.5) * spread))
+        : progress;
+      p.t = p.dur * frac;
+    });
+    dollTurn = 1; dollTurnTarget = 1; redFlashAlpha = 0.85; shakeMag = 0;
+    if (state) state.light = 'red';
+    bannerRedHold = 14;
+    render(state); updateHUD(state);
+    // render twice: updateHUD re-arms bannerRedHold so the banner shows RED
+    render(state);
+    return particles.length;
+  },
+};
+</script>
+</body>
+</html>
