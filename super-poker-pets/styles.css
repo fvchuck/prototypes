@@ -1,0 +1,1035 @@
+/* ============================================================
+   Super Poker Pets — Casino Table Stylesheet
+   ============================================================ */
+
+/* ---------- Reset & Base ---------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  color: #f0ede6;
+  background: #0b3326;
+}
+
+/* ---------- Sound toggle ---------- */
+.sfx-toggle {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 100;
+  padding: 6px 12px;
+  border-radius: 14px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #f5e688;
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid rgba(245, 200, 66, 0.6);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.sfx-toggle:hover { background: rgba(0, 0, 0, 0.6); }
+.sfx-toggle.off {
+  color: #a0c8b8;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* ---------- App Shell ---------- */
+#app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse at 50% 40%, #1a5c3e 0%, #0f3b2e 55%, #091f19 100%);
+}
+
+/* ---------- Screens ---------- */
+.screen {
+  width: 1280px;
+  height: 800px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 24px;
+  overflow: hidden;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------- Status Bar ---------- */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 6px 14px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 15px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.status-bar .hearts { display: inline-flex; align-items: center; gap: 3px; }
+.status-bar .hud-ico { width: 18px; height: 18px; }
+.status-bar .gold   { color: #f5c842; display: inline-flex; align-items: center; gap: 4px; }
+.status-bar .gold .hud-ico { width: 20px; height: 20px; }
+.status-bar .gold .hud-num { font-size: 17px; font-weight: 800; }
+.status-bar .round  { color: #a0d8c8; }
+
+/* ---------- Trophy Ladder ---------- */
+/* The full ladder styles live in the result-screen section; here are the
+   compact (status-bar) overrides + the "win this next" current-slot marker. */
+.trophy-ladder.compact { gap: 8px; }
+.trophy-ladder.compact .trophy-cell { gap: 2px; }
+.trophy-ladder.compact .trophy-slot { width: 30px; height: 30px; border-width: 2px; }
+.trophy-ladder.compact .trophy-img { width: 20px; height: 20px; }
+.trophy-ladder.compact .trophy-mult { font-size: 10px; }
+
+/* Current position: the next trophy to win. Pulsing gold ring on an empty slot. */
+.trophy-slot.current {
+  border-color: #f5c842;
+  animation: pulse-outline 1.4s ease-in-out infinite;
+}
+.trophy-ladder .trophy-cell .trophy-slot.current + .trophy-mult { color: #f5e688; }
+
+@keyframes pulse-outline {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 200, 66, 0.6); }
+  50%       { box-shadow: 0 0 0 5px rgba(245, 200, 66, 0); }
+}
+
+/* ---------- Card Tile ---------- */
+.card-tile {
+  position: relative;
+  width: 88px;
+  height: 120px;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  padding: 5px 6px 5px 6px;
+  cursor: default;
+  user-select: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  flex-shrink: 0;
+}
+
+.card-tile:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.65);
+}
+
+/* draggable tiles: keep touch gestures from scrolling/zooming mid-drag */
+.card-tile { touch-action: none; }
+
+/* the tile being dragged is dimmed in place */
+.card-tile.drag-source { opacity: 0.35; }
+
+/* floating clone that follows the pointer */
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%) scale(1.05) rotate(-3deg);
+  pointer-events: none;
+  z-index: 300;
+  opacity: 0.92;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.7);
+}
+
+/* drop-target highlight on board cards/slots */
+.drop-ok { outline: 3px solid #2fbf6e; outline-offset: 2px; box-shadow: 0 0 14px rgba(47, 191, 110, 0.6); }
+.drop-bad { outline: 3px solid #d9263a; outline-offset: 2px; }
+
+/* Rank + primary suit glyph, top-left */
+.card-rank {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+}
+
+.card-rank .rank-label {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -1px;
+  color: #14141c; /* dark ink on the white card face — was inheriting cream */
+}
+
+.card-rank .suit-glyphs {
+  font-size: 19px;
+  line-height: 1;
+  font-weight: 700;
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+/* Vendored SVG emoji render as inline images */
+.emoji {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  object-fit: contain;
+}
+
+/* Pet art, centered */
+.card-pet {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.card-pet .pet {
+  width: 50px;
+  height: 50px;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+}
+
+/* ATK / HP badges, bottom row */
+.card-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Sized so two two-digit badges (e.g. 14/14 on a buffed Lv4) fit inside the
+   88px card without spilling. Keep these tight if you bump the font. */
+.stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 900;
+  padding: 2px 4px;
+  border-radius: 6px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.stat-badge .stat-ico { width: 12px; height: 12px; vertical-align: middle; }
+.stat-badge .stat-num { font-variant-numeric: tabular-nums; }
+
+.stat-badge.atk {
+  background: #fff4cc;
+  color: #7a5a00;
+}
+
+.stat-badge.hp {
+  background: #ffe0e6;
+  color: #a0001e;
+}
+
+/* Buffed / hurt stat coloring — recolor the stat NUMBER (badge bg + icon stay).
+   Must target .stat-num to beat the per-kind badge color (.stat-badge.atk/.hp),
+   which is more specific than a bare .stat-buffed and would otherwise win. */
+.stat-badge.stat-buffed .stat-num { color: #1e9e4a; }
+.stat-badge.stat-hurt   .stat-num { color: #d9263a; }
+
+/* Level border + badge */
+.card-tile.lv2 { border: 2px solid #c8a830; }
+.card-tile.lv3 { border: 2px solid #d4a017; box-shadow: 0 4px 12px rgba(0,0,0,0.55), 0 0 10px rgba(212,160,23,0.35); }
+.card-tile.lv4 { border: 3px solid #f5c842; box-shadow: 0 4px 12px rgba(0,0,0,0.55), 0 0 16px rgba(245,200,66,0.55); }
+
+.lv-badge {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  font-size: 9px;
+  font-weight: 900;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #b8860b, #f5c842);
+  color: #1c1005;
+  line-height: 1.3;
+  letter-spacing: 0.3px;
+}
+
+/* Tier pips — one 💎 per tier (1–4), shown ABOVE a shop offer so the card's
+   power band reads at a glance without crowding the card face. */
+.tier-gems {
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 1px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+/* Hand-membership highlights — a card lit because it contributes to a hand.
+   Glow color follows the element's own ink: suit glyphs glow their suit color
+   (flush), rank labels glow blue (straight) or gold (pair/trips/quads). */
+.suit-glyphs .suit-glow {
+  text-shadow: 0 0 9px currentColor, 0 0 3px currentColor;
+  transform: scale(1.12);
+}
+.rank-label.rank-glow-straight {
+  color: #0b5bd0;
+  text-shadow: 0 0 11px #3d8bff, 0 0 3px #6aa8ff;
+}
+.rank-label.rank-glow-group {
+  color: #b06a00;
+  text-shadow: 0 0 11px #ffb020, 0 0 3px #ffce6a;
+}
+
+/* Cards lit because the player tapped a bonus to see what contributes to it. */
+.card-tile.contributing {
+  outline: 3px solid #f5c842;
+  outline-offset: 2px;
+  animation: contrib-pulse 1.3s ease-in-out infinite;
+}
+@keyframes contrib-pulse {
+  0%, 100% { box-shadow: 0 4px 12px rgba(0,0,0,0.55), 0 0 10px 1px rgba(245,200,66,0.5); }
+  50%      { box-shadow: 0 4px 12px rgba(0,0,0,0.55), 0 0 20px 5px rgba(245,200,66,0.85); }
+}
+
+/* Stat-breakdown tooltip shown above a selected board card. */
+.card-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  min-width: 158px;
+  padding: 8px 10px;
+  background: #11201a;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  font-size: 12px;
+  color: #e7f0ea;
+}
+.card-pop::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #11201a;
+}
+.card-pop .cp-title {
+  font-weight: 800;
+  margin-bottom: 5px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.cp-row { display: flex; justify-content: space-between; gap: 14px; line-height: 1.5; }
+.cp-label { color: #b9cabf; }
+.cp-val { font-variant-numeric: tabular-nums; font-weight: 700; }
+.cp-row.cp-sub { border-top: 1px solid rgba(255, 255, 255, 0.12); margin-top: 3px; padding-top: 3px; }
+.cp-row.cp-sub .cp-label, .cp-row.cp-sub .cp-val { color: #8aa39a; }
+.cp-row.cp-bonus .cp-val { color: #4ddc8a; }
+.cp-row.cp-total { border-top: 1px solid rgba(255, 255, 255, 0.18); margin-top: 3px; padding-top: 3px; font-weight: 800; }
+.cp-row.cp-total .cp-val { color: #f5e688; }
+
+/* ---------- Board / Shop Rows ---------- */
+.board-row,
+.shop-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.slot {
+  width: 88px;
+  height: 120px;
+  border-radius: 10px;
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.18);
+  font-size: 22px;
+  flex-shrink: 0;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.slot:hover {
+  border-color: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Selected card / slot accent */
+.card-tile.selected,
+.slot.selected {
+  outline: 3px solid #f5c842;
+  outline-offset: 2px;
+}
+
+/* Shop offer matching a pet you already hold — teal glow flags a dup/merge.
+   Distinct from the gold selected/level accents so it reads at a glance. */
+.card-tile.dupe-glow {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.55), 0 0 0 2px #36d6c3, 0 0 12px 2px rgba(54,214,195,0.6);
+  animation: dupe-pulse 1.4s ease-in-out infinite;
+}
+@keyframes dupe-pulse {
+  0%, 100% { box-shadow: 0 4px 12px rgba(0,0,0,0.55), 0 0 0 2px #36d6c3, 0 0 10px 1px rgba(54,214,195,0.45); }
+  50%      { box-shadow: 0 4px 12px rgba(0,0,0,0.55), 0 0 0 2px #36d6c3, 0 0 18px 4px rgba(54,214,195,0.85); }
+}
+
+/* Foil cards — holographic rainbow border + an animated sheen sweep. The rare
+   (~7%) premium card; the look reads at a glance and survives merges. */
+.card-tile.foil {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(135deg, #fde7f1, #fff6da, #e3fbf3, #e6f0ff, #f3e9ff) padding-box,
+    linear-gradient(135deg, #ff5e8a, #ffd166, #4be1c0, #6aa8ff, #c084fc) border-box;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.55), 0 0 16px 1px rgba(120,170,255,0.55);
+}
+.foil-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,0.6) 50%, transparent 62%);
+  background-size: 300% 100%;
+  animation: foil-sweep 2.8s linear infinite;
+}
+@keyframes foil-sweep {
+  0%   { background-position: 130% 0; }
+  100% { background-position: -60% 0; }
+}
+
+/* ---------- Deck / discard tracker ---------- */
+.deck-tracker {
+  display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
+  margin: 14px auto 4px; max-width: 660px;
+  font-size: 12px; color: #cfe8d8;
+}
+.deck-pile, .discard-pile {
+  background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; padding: 8px 12px;
+}
+.deck-pile { flex: 1 1 380px; }
+.discard-pile { flex: 0 1 200px; }
+.pile-title { font-weight: 700; color: #f5f7f4; margin-bottom: 6px; }
+.pile-sub { font-size: 10px; color: #8fae9c; }
+.pile-suits { display: flex; gap: 12px; margin-bottom: 7px; }
+.pile-suit { display: flex; align-items: center; gap: 3px; font-weight: 700; }
+.pile-suit-g { font-size: 15px; }
+.pile-suit.gone { opacity: 0.3; }
+.pile-ranks { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px; }
+.pile-rank {
+  display: flex; align-items: center; gap: 2px;
+  background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 5px;
+}
+.pile-rank.gone { opacity: 0.28; }
+.pile-rank-lbl { font-weight: 700; }
+.pile-rank-n { color: #9fd0b3; }
+.pile-foils { font-size: 11px; color: #c9a6ff; }
+.pile-foils.none { color: #6c7b72; }
+
+/* ---------- Hand-progress HUD ---------- */
+.hand-hud {
+  display: flex; flex-direction: column; gap: 4px;
+  max-width: 560px; margin: 10px auto 0;
+}
+.hud-row {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(245,200,66,0.08); border: 1px solid rgba(245,200,66,0.22);
+  border-radius: 8px; padding: 4px 10px; font-size: 12px;
+}
+.hud-ico { font-size: 15px; font-weight: 800; min-width: 16px; text-align: center; color: #f5c842; }
+.hud-label { font-weight: 700; color: #f5f7f4; min-width: 84px; }
+.hud-bonus { color: #ffd98a; font-weight: 700; }
+.hud-bonus.done { color: #6ee7a8; }
+.hud-live { margin-left: auto; color: #9fd0b3; font-weight: 700; }
+.hud-live.dry { color: #d98a8a; }
+
+/* Front-slot label */
+.front-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #f5c842;
+  margin-top: 4px;
+  opacity: 0.85;
+}
+.front-marker .fm-ico { width: 13px; height: 13px; }
+
+/* ---------- Battle Screen ---------- */
+.battle-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  align-items: center;
+}
+
+.battle-rows .enemy-row,
+.battle-rows .player-row {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Enemy row: units face downward (toward player) */
+.battle-rows .enemy-row {
+  margin-bottom: 8px;
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* Player row: units face upward (toward enemy) */
+.battle-rows .player-row {
+  margin-top: 8px;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+}
+
+/* Center gap between rows */
+.battle-divider {
+  width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+/* Clash animation: quick bump toward opponent */
+@keyframes clash-down {
+  0%   { transform: translateY(0); }
+  40%  { transform: translateY(18px); }
+  70%  { transform: translateY(-4px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes clash-up {
+  0%   { transform: translateY(0); }
+  40%  { transform: translateY(-18px); }
+  70%  { transform: translateY(4px); }
+  100% { transform: translateY(0); }
+}
+
+.battle-rows .enemy-row .card-tile.clash { animation: clash-down 0.35s ease-out; }
+.battle-rows .player-row .card-tile.clash { animation: clash-up 0.35s ease-out; }
+
+/* Dying animation: fade + shrink */
+@keyframes dying-anim {
+  0%   { opacity: 1; transform: scale(1); }
+  60%  { opacity: 0.4; transform: scale(0.85) rotate(-8deg); }
+  100% { opacity: 0; transform: scale(0.6) rotate(-18deg); }
+}
+
+.card-tile.dying {
+  animation: dying-anim 0.55s ease-in forwards;
+  pointer-events: none;
+}
+
+/* Floating damage numbers */
+.dmg-float {
+  position: absolute;
+  font-size: 18px;
+  font-weight: 900;
+  color: #ff3a5c;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: dmg-rise 0.9s ease-out forwards;
+}
+
+@keyframes dmg-rise {
+  0%   { opacity: 1; transform: translateY(0) scale(1.2); }
+  60%  { opacity: 0.9; transform: translateY(-28px) scale(1); }
+  100% { opacity: 0; transform: translateY(-44px) scale(0.85); }
+}
+
+/* ---------- Battle controls ---------- */
+.battle-controls {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.battle-hint {
+  text-align: center;
+  font-size: 13px;
+  color: #a0d8c8;
+  opacity: 0.85;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.overlay-panel h2 .title-ico { width: 28px; height: 28px; vertical-align: -0.18em; margin-left: 8px; }
+
+/* ---------- Traits Panel ---------- */
+/* Bonuses lay out as horizontal pills that wrap — a vertical stack pushed the
+   shop row + Fight button off the fixed-height screen once 4+ were active. */
+.traits-panel {
+  display: flex;
+  flex-flow: row wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.trait-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  animation: trait-slide-in 0.25s ease-out both;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.trait-row:hover { background: rgba(255, 255, 255, 0.12); }
+.trait-row.active {
+  background: rgba(245, 200, 66, 0.18);
+  border-color: rgba(245, 200, 66, 0.7);
+}
+
+.trait-row .trait-name {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #f5e688;
+}
+
+.trait-row .trait-bonus {
+  font-size: 12px;
+  color: #b0d8c0;
+}
+
+@keyframes trait-slide-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f0ede6;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.38);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #1e7a48 0%, #26a85e 100%);
+  border-color: #2fbf6e;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #26a85e 0%, #30c870 100%);
+  border-color: #40d880;
+}
+
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+}
+
+/* ---------- Overlay (battle results / modal) ---------- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.62);
+  z-index: 100;
+  animation: overlay-fade-in 0.2s ease-out;
+}
+
+.overlay-panel {
+  background: linear-gradient(160deg, #1a4a36 0%, #0f3226 100%);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  padding: 36px 48px;
+  min-width: 340px;
+  max-width: 520px;
+  text-align: center;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: overlay-slide-up 0.25s ease-out;
+}
+
+.overlay-panel h2 {
+  font-size: 26px;
+  font-weight: 900;
+  color: #f5e688;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- Wager (title screen) ---------- */
+.wallet-line { font-size: 15px; font-weight: 700; color: #cfe8d8; margin: 6px 0 14px; }
+.wager-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+.wager-label { font-size: 16px; font-weight: 800; color: #e7f0ea; }
+.wager-input {
+  width: 130px; font-size: 20px; font-weight: 800; text-align: center;
+  padding: 7px 10px; border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.28); color: #f5e688; font-variant-numeric: tabular-nums;
+}
+.wager-input:focus { outline: 2px solid #f5c842; outline-offset: 1px; }
+/* strip the spinner arrows so the field reads as a clean money input */
+.wager-input::-webkit-outer-spin-button,
+.wager-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.wager-chips { display: flex; gap: 6px; justify-content: center; margin-bottom: 14px; }
+.wager-chips .chip { padding: 5px 12px; font-size: 13px; }
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes overlay-slide-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ---------- Result displays (round result + run end) ---------- */
+.result-panel {
+  gap: 20px;
+  min-width: 460px;
+}
+
+/* Trophy ladder: 5 positions, silhouettes for unearned, multiplier under each */
+.trophy-ladder {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+}
+.trophy-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.trophy-slot {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+}
+.trophy-slot.earned {
+  border-color: #f5c842;
+  background: radial-gradient(circle at 50% 40%, rgba(245, 200, 66, 0.35), rgba(245, 200, 66, 0.08));
+  box-shadow: 0 0 12px rgba(245, 200, 66, 0.4);
+}
+.trophy-img { width: 36px; height: 36px; }
+.trophy-img.silhouette { filter: grayscale(1) brightness(0.45) opacity(0.4); }
+.trophy-mult {
+  font-size: 13px;
+  font-weight: 800;
+  color: #f5e688;
+}
+.trophy-cell .trophy-slot.empty + .trophy-mult { color: rgba(245, 230, 136, 0.4); }
+
+/* Trophy earn pop + sparkles */
+.trophy-pop { animation: trophy-pop 0.7s cubic-bezier(0.2, 1.4, 0.5, 1) both; }
+@keyframes trophy-pop {
+  0%   { transform: scale(0.2); opacity: 0; }
+  55%  { transform: scale(1.45); opacity: 1; }
+  75%  { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+.trophy-spark {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  pointer-events: none;
+  animation: trophy-spark 0.9s ease-out both;
+}
+@keyframes trophy-spark {
+  0%   { transform: scale(0.4) rotate(0deg); opacity: 0; }
+  40%  { opacity: 1; }
+  100% { transform: scale(1.7) rotate(40deg); opacity: 0; }
+}
+
+/* Hearts display + break animation */
+.hearts-display {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.heart-cell { position: relative; width: 30px; height: 30px; }
+.heart-img { width: 30px; height: 30px; }
+.heart-cell .heart-base { position: absolute; inset: 0; }
+.heart-cell .heart-breaking {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  animation: heart-break 0.95s ease-in both;
+}
+@keyframes heart-break {
+  0%   { transform: scale(1) rotate(0); opacity: 1; }
+  15%  { transform: scale(1.25) rotate(-6deg); }
+  30%  { transform: scale(1.1) rotate(6deg); }
+  45%  { transform: scale(1.15) rotate(-4deg); }
+  100% { transform: scale(0.5) translateY(14px) rotate(-18deg); opacity: 0; }
+}
+
+/* Central wager / payout block */
+.wager-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 22px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(245, 200, 66, 0.25);
+  border-radius: 12px;
+}
+.wager-line { font-size: 13px; color: #a0d8c8; }
+.payout-amount { font-size: 26px; font-weight: 900; color: #f5e688; }
+.payout-amount.payout-big { font-size: 34px; }
+.payout-sub { font-size: 12px; color: rgba(255, 255, 255, 0.5); }
+
+/* ---------- Pack-unlock flourish (victory screen) ---------- */
+.pack-unlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 22px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(245, 200, 66, 0.14), rgba(245, 200, 66, 0.04));
+  border: 1px solid rgba(245, 200, 66, 0.4);
+  animation: pack-pop 0.6s cubic-bezier(0.2, 1.4, 0.5, 1) both;
+}
+@keyframes pack-pop {
+  0%   { transform: scale(0.7); opacity: 0; }
+  60%  { transform: scale(1.06); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.pack-unlock-title {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 1.6px;
+  color: #f5e688;
+  text-shadow: 0 0 12px rgba(245, 200, 66, 0.6);
+}
+.pack-unlock-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #d8c890;
+}
+.pack-unlock-sub .tier-gem { position: static; } /* un-absolute inside the line */
+.pack-unlock-pets { display: flex; gap: 14px; }
+.pack-pet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  animation: pack-pet-in 0.5s ease-out both;
+}
+.pack-pet .pet { width: 36px; height: 36px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.4)); }
+.pack-pet-rank { font-size: 11px; font-weight: 800; color: #f5e688; }
+@keyframes pack-pet-in {
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* ---------- Confirm dialog ---------- */
+.confirm-panel { gap: 22px; }
+.confirm-msg {
+  font-size: 16px;
+  line-height: 1.5;
+  color: #f0ede6;
+}
+.confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.btn-danger {
+  background: linear-gradient(135deg, #a3263a 0%, #d9263a 100%);
+  border-color: #ff5c72;
+  color: #fff;
+}
+.btn-danger:hover { background: linear-gradient(135deg, #c12d44 0%, #ff3a5c 100%); }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ffd9a0;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 200;
+  animation: toast-in 0.2s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ---------- Sell zone (drag-to-sell) ---------- */
+.sell-zone {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 2px dashed rgba(245, 200, 66, 0.4);
+  background: rgba(245, 200, 66, 0.06);
+  color: #cdbf8a;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: default;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.sell-zone .sell-zone-ico { width: 18px; height: 18px; }
+.sell-zone.armed {
+  border-style: solid;
+  border-color: #f5c842;
+  background: rgba(245, 200, 66, 0.16);
+  color: #f5e688;
+  cursor: pointer;
+}
+.sell-zone.armed:hover { background: rgba(245, 200, 66, 0.26); }
+
+/* coin tag inside a button (reroll cost, etc.) */
+.btn-coin { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; }
+.btn-coin .hud-ico { width: 15px; height: 15px; }
+
+/* Status bar can wrap if the HUD gets busy */
+.status-bar { flex-wrap: wrap; }
+
+/* ---------- Misc Utilities ---------- */
+/* Muted note text (multi-deck label etc.) */
+.note {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.38);
+  font-style: italic;
+}
+
+/* Section headings inside screens */
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 4px;
+}
+
+/* Gold / coin inline icon */
+.gold-icon { color: #f5c842; }
+
+/* Scrollable list (shop extras etc.) */
+.scroll-y {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+
+/* Offer controls: buy-cost tag + free lock toggle */
+.offer-ctrl {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.buy-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #f5c842;
+}
+.buy-tag .hud-ico { width: 16px; height: 16px; }
+
+.lock-btn {
+  padding: 4px 7px;
+  font-size: 12px;
+}
+.lock-btn .btn-ico { width: 16px; height: 16px; display: block; }
+
+/* Locked (frozen) offer marker */
+.lock-btn.locked {
+  background: rgba(80, 170, 220, 0.45);
+  border-color: #5ec8f0;
+  box-shadow: 0 0 8px rgba(94, 200, 240, 0.6);
+}
+
+/* Error feedback flash on the gold counter */
+@keyframes flash-err {
+  0%, 100% { color: #f5c842; }
+  50%      { color: #ff3a5c; transform: scale(1.18); }
+}
+.status-bar .gold.flash {
+  display: inline-block;
+  animation: flash-err 0.4s ease-out;
+}

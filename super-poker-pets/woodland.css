@@ -1,0 +1,281 @@
+/* ============================================================
+   Woodland Skin
+   ------------------------------------------------------------
+   Reskins the casino-green UI with hand-painted wood/gold/leaf
+   art in assets/ui/. Loaded AFTER styles.css so it overrides.
+   Panels use border-image (9-slice) so one PNG stretches to any
+   size; cards/slots use a stretched background-image.
+
+   Slice values are tuned against the source PNGs:
+     hud-bar / btn-* / dropzone / row : 2172x724
+     panel-board / bg-forest          : 1672x941
+     card-frame                       : 1086x1448
+     slot                             : 1254x1254
+   ============================================================ */
+
+:root {
+  --wd-ink:   #3a2614;  /* dark engraved text on wood */
+  --wd-cream: #f3e6c9;  /* light text on dark wood     */
+  --wd-gold:  #e9c87a;  /* gold accent text            */
+}
+
+/* ---------- Background ---------- */
+html, body { background: #1d140b; }
+
+#app {
+  background: url('assets/ui/bg-forest.png') center center / cover no-repeat,
+              radial-gradient(ellipse at 50% 40%, #2a3a1e 0%, #161f10 100%);
+}
+
+.screen { color: var(--wd-cream); }
+
+/* ---------- Top HUD bar ---------- */
+.status-bar {
+  background: none;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 22px 52px;
+  border-image: url('assets/ui/hud-bar.png') 88 120 fill / 22px 52px / 0 stretch;
+  border-radius: 0;
+  min-height: 78px;
+  align-items: center;
+  color: var(--wd-cream);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  flex-wrap: nowrap;
+}
+.status-bar .round { color: var(--wd-gold); }
+.status-bar .gold  { color: #ffe08a; }
+
+/* ---------- Opponent / round line ---------- */
+.note {
+  color: var(--wd-cream);
+  font-style: normal;
+  opacity: 0.92;
+}
+
+/* ---------- Board & shop panels ---------- */
+.board-row,
+.shop-row {
+  background: none;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 30px 44px;
+  border-image: url('assets/ui/panel-board.png') 96 110 fill / 30px 44px / 0 stretch;
+  border-radius: 0;
+}
+
+/* ---------- Card tiles (ornate gold frame) ---------- */
+.card-tile {
+  background: url('assets/ui/card-frame.png') no-repeat center / 100% 100%;
+  border: none !important;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 12px 13px 14px;
+}
+.card-tile:hover {
+  box-shadow: none;
+  transform: translateY(-4px);
+}
+/* the frame already carries the gold edge — drop the level-tint borders */
+.card-tile.lv2,
+.card-tile.lv3,
+.card-tile.lv4 {
+  border: none !important;
+  box-shadow: none;
+}
+.card-tile.lv3 { filter: drop-shadow(0 0 6px rgba(212,160,23,0.35)); }
+.card-tile.lv4 { filter: drop-shadow(0 0 10px rgba(245,200,66,0.55)); }
+
+/* Tier gem / Lv badge live in the card frame's top-right cutout. The frame art
+   carries a gold notch there; the pip nestles into it. (Master had moved tier to
+   💎 pips above the card, which collided with this cutout — reverted in app.js.) */
+.tier-gem,
+.lv-badge {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  border-radius: 5px;
+  color: #2a1c0c;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.35);
+}
+.tier-gem.tier-0 { background: linear-gradient(135deg, #e6a463, #c97e30); }
+.tier-gem.tier-1 { background: linear-gradient(135deg, #f2f2f2, #b4b4b4); }
+.tier-gem.tier-2 { background: linear-gradient(135deg, #ffe27a, #f0bd2e); }
+.tier-gem.tier-3 { background: linear-gradient(135deg, #c4f5ff, #7fe0ff); color: #073645; }
+
+/* ---------- Empty pet slot (carved paw) ---------- */
+.slot {
+  background: url('assets/ui/slot.png') no-repeat center / 100% 100%;
+  border: none;
+  border-radius: 0;
+  color: transparent;             /* hide the "+", the paw is baked in */
+}
+.slot:hover { background: url('assets/ui/slot.png') no-repeat center / 100% 100%; filter: brightness(1.12); }
+
+/* ---------- FRONT tab ---------- */
+.front-marker {
+  background: url('assets/ui/tab.png') no-repeat center / 100% 100%;
+  color: var(--wd-cream);
+  opacity: 1;
+  padding: 7px 10px 9px 16px;
+  margin-top: 6px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+}
+.front-marker .fm-ico { filter: none; }
+
+/* ---------- Buttons ---------- */
+/* generic wooden button (Reroll, stake buttons) */
+.btn {
+  background: none;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 16px 40px;
+  border-image: url('assets/ui/btn-reroll.png') 96 210 fill / 16px 40px / 0 stretch;
+  border-radius: 0;
+  color: var(--wd-cream);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.btn:hover {
+  background: none;
+  border-color: transparent;
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+/* primary = green button (Play, Fight, Continue) */
+.btn-primary {
+  border-image: url('assets/ui/btn-fight.png') 110 230 fill / 16px 40px / 0 stretch;
+  color: #fff;
+}
+.btn-primary:hover { border-color: transparent; filter: brightness(1.1); }
+
+/* lock toggle is a tiny inline control — keep it compact, not a plank */
+.btn.lock-btn {
+  border-image: none;
+  border: 1px solid rgba(245,200,66,0.5);
+  background: rgba(60,40,20,0.6);
+  border-radius: 6px;
+  padding: 4px 7px;
+}
+.btn.lock-btn.locked {
+  background: rgba(80,170,220,0.45);
+  border-color: #5ec8f0;
+}
+
+/* ---------- Sell / drop zone ---------- */
+.sell-zone {
+  background: none;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 16px 40px;
+  border-image: url('assets/ui/dropzone.png') 90 130 fill / 16px 40px / 0 stretch;
+  border-radius: 0;
+  color: var(--wd-cream);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.sell-zone.armed { filter: brightness(1.12); }
+
+/* ---------- Hand-progress rows (parchment) ---------- */
+.hud-row {
+  background: none;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 13px 42px;
+  border-image: url('assets/ui/row.png') 80 130 fill / 13px 42px / 0 stretch;
+  border-radius: 0;
+  color: var(--wd-ink);
+}
+.hud-row .hud-label { color: var(--wd-ink); }
+.hud-row .hud-bonus { color: #8a5a00; }
+.hud-row .hud-bonus.done { color: #1e7a3a; }
+.hud-row .hud-live { color: #5a7a3a; }
+
+/* ---------- Deck / discard tracker (carved sub-panel) ---------- */
+.deck-pile,
+.discard-pile {
+  background: rgba(40,26,14,0.55);
+  border: 1px solid rgba(233,200,122,0.3);
+}
+.pile-title { color: var(--wd-gold); }
+
+/* ---------- Title: logo above the wood panel ---------- */
+.title-wrap {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.title-logo {
+  display: block;
+  width: 360px;
+  max-width: 80vw;
+  height: auto;
+  filter: drop-shadow(0 6px 16px rgba(0,0,0,0.5));
+}
+
+/* ---------- Overlay / modal panels (title, round result, run end, confirm) --- */
+/* Modals are portrait, so the wide leafy board plank can't 9-slice into them
+   without smearing the grain/leaves. Instead: fill with a clean wood swatch
+   (cover = grain never distorts) and frame it with a carved gold+wood border
+   built in CSS, which scales to any panel shape. */
+.overlay-panel {
+  background: url('assets/ui/wood-tile.png') center / cover, #3a2614;
+  border: 5px solid #241608;
+  border-radius: 18px;
+  padding: 28px 34px;
+  color: var(--wd-cream);
+  box-shadow:
+    inset 0 0 0 3px rgba(201,150,46,0.92),   /* gold inlay line   */
+    inset 0 0 0 6px rgba(116,82,26,0.85),    /* gold lowlight     */
+    inset 0 8px 30px rgba(0,0,0,0.5),         /* top vignette      */
+    inset 0 -8px 30px rgba(0,0,0,0.5),        /* bottom vignette   */
+    0 18px 48px rgba(0,0,0,0.62);             /* drop shadow       */
+}
+
+/* Bet quick-pick chips: compact + wrap so 4 never overflow the panel */
+.wager-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.btn.chip {
+  border-width: 13px 22px;
+  border-image: url('assets/ui/btn-reroll.png') 96 210 fill / 13px 22px / 0 stretch;
+  padding: 0;
+  min-width: 0;
+  font-size: 13px;
+}
+.overlay-panel h2 {
+  color: var(--wd-gold);
+  text-shadow: 0 2px 4px rgba(0,0,0,0.55);
+}
+.wager-line, .wager-label, .payout-sub, .pack-unlock-sub { color: var(--wd-cream); }
+.payout-amount, .pack-unlock-title { color: #ffe08a; }
+.wager-box {
+  background: rgba(40,26,14,0.4);
+  border-color: rgba(233,200,122,0.35);
+}
+
+/* ---------- Battle screen rows ---------- */
+.battle-rows .enemy-row,
+.battle-rows .player-row {
+  background: none;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 28px 44px;
+  border-image: url('assets/ui/panel-board.png') 96 110 fill / 28px 44px / 0 stretch;
+  border-radius: 0;
+}
+.battle-hint { color: var(--wd-cream); }
