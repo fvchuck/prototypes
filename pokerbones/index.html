@@ -1335,6 +1335,17 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   0%,100% { transform: translateX(-50%) translateY(0) rotate(-2deg); }
   50%     { transform: translateX(-50%) translateY(-4px) rotate(2deg); }
 }
+/* On height-constrained (landscape/desktop) layouts the board is sized by
+   dvh while the crown's 8vw width saturates to its max — oversizing it so it
+   pokes up into the deck pile + count badge that sit right above the player
+   score. Tame the width (no longer vw-driven) and tuck the crown onto the
+   box top so it clears the badge. Phone-portrait keeps the floating crown. */
+@media (min-aspect-ratio: 2/3) {
+  .crown {
+    width: clamp(22px, 3.6vw, 30px);
+    margin-bottom: calc(var(--scoreh) * -0.16);
+  }
+}
 
 /* ─── COLUMN SCORES ─── */
 .colscore {
@@ -1879,7 +1890,14 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   width: min(150vw, 900px); aspect-ratio: 1; transform: translate(-50%,-50%);
   border-radius: 50%; pointer-events: none;
   background: radial-gradient(closest-side, rgba(0,0,0,.95), rgba(0,0,0,.78) 45%, rgba(0,0,0,0) 72%);
-  animation: winpop .5s both;
+  animation: winbgpop .5s both;
+}
+/* dedicated keyframes that KEEP the centering translate — the shared winpop
+   animates `transform`, which would otherwise clobber translate(-50%,-50%)
+   and shove the backdrop off to the lower-right of the text. */
+@keyframes winbgpop {
+  from { transform: translate(-50%,-50%) scale(.3); opacity: 0; }
+  to   { transform: translate(-50%,-50%) scale(1);  opacity: 1; }
 }
 .winbig {
   font-family: var(--cf); font-weight: 700;
