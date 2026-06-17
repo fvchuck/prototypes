@@ -12,6 +12,10 @@
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<!-- Real playing-card faces for the desktop/tablet (wide) layout only.
+     cardmeister: one public-domain (Unlicense) script that renders each card as
+     an <img> with an SVG data-URI; mobile keeps the typographic .cr/.cs faces. -->
+<script src="https://cardmeister.github.io/elements.cardmeister.full.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -23,6 +27,17 @@ const SUITS = ["♠", "♥", "♦", "♣"];
 const FACE = { 11: "J", 12: "Q", 13: "K", 14: "A" };
 const rName = r => FACE[r] || String(r);
 const isRed = s => s === "♥" || s === "♦";
+
+// ── Real card faces (desktop/tablet only) ──────────────────
+// Map our {r,s} onto a cardmeister card-id ([Rank][Suit]: 10→T, JQKA, suits SHDC)
+// and render its <playing-card> SVG face, sized to fill the slot.
+const SUIT_CID = { "♠": "S", "♥": "H", "♦": "D", "♣": "C" };
+const RANK_CID = { 10: "T", 11: "J", 12: "Q", 13: "K", 14: "A" };
+const toCid = c => (RANK_CID[c.r] || String(c.r)) + (SUIT_CID[c.s] || "S");
+// NOTE: custom elements take `class` (React passes it straight through); a
+// `className` prop would land as a literal `classname` attribute and miss CSS.
+const Face = ({ c, cls }) =>
+  <playing-card cid={toCid(c)} class={"pcface" + (cls ? " " + cls : "")} />;
 
 // Card ids must be unique across BOTH players' decks: destruction removes
 // victims by id from both boards, so a shared id would smash your own card.
@@ -363,6 +378,9 @@ function App() {
   const aDeckRef = useRef(null);
   const bankRef = useRef(null);
   const placeFromRef = useRef(null); // {id, rect} so a placed card flies from the draw slot
+  const [drag, setDrag] = useState(null);          // {x,y,col} live pointer-drag of the drawn card (wide only)
+  const dragRef = useRef(null);                     // mirror of `drag` for the move/up listeners
+  const colRefs = useRef([null, null, null]);       // player column drop zones, for drag hit-testing
   const timeouts = useRef([]);
   const later = (fn, ms) => timeouts.current.push(setTimeout(fn, ms));
   useEffect(() => () => timeouts.current.forEach(clearTimeout), []);
@@ -409,7 +427,50 @@ function App() {
     place("p", col);
   }
 
-  function place(side, col) {
+  // Drag the drawn card onto a column (desktop/tablet "wide" layout only).
+  // Pointer events cover both mouse and tablet touch; this coexists with the
+  // tap-to-place path — both ultimately call place(). Release off any column
+  // snaps back (no placement) so the player can retry.
+  function startDrag(e) {
+    const gg = gRef.current;
+    if (!gg || busyRef.current || gg.turn !== "p" || !gg.drawn) return;
+    if (!e.target.closest(".drawfly")) return;        // only when grabbing the card itself
+    e.preventDefault();
+    const hit = (x, y) => {
+      for (let i = 0; i < 3; i++) {
+        const el = colRefs.current[i];
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)
+          return gRef.current.boards.p[i].length < 3 ? i : null;  // null = full → invalid
+      }
+      return null;
+    };
+    const move = ev => {
+      const x = ev.clientX, y = ev.clientY, col = hit(x, y);
+      dragRef.current = { x, y, col };
+      setDrag({ x, y, col });
+    };
+    const finish = commit => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      const d = dragRef.current;
+      const ghost = document.querySelector(".dragghost");
+      const rect = ghost ? ghost.getBoundingClientRect() : null;  // fly in from the drop point
+      dragRef.current = null;
+      setDrag(null);
+      if (commit && d && d.col != null) place("p", d.col, rect);
+    };
+    const onUp = () => finish(true);
+    const onCancel = () => finish(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    move(e);   // seed ghost position + initial hovered column
+  }
+
+  function place(side, col, originRect) {
     const gg = gRef.current;
     const card = gg.drawn;
     const opp = side === "p" ? "a" : "p";
@@ -423,9 +484,11 @@ function App() {
     const oppEvBefore = evalHand(gg.boards[opp][col]);
     const brokenHand = (side === "p" && victims.length > 0 && oppEvBefore.m > 1)
       ? { col, name: oppEvBefore.name, m: oppEvBefore.m, tier: HAND_TIER[oppEvBefore.m] || 1 } : null;
-    // capture where the drawn card sits now, so the placed card flies there.
+    // capture where the placed card flies FROM: the drop point when dragged,
+    // otherwise the draw slot (tap-to-place).
     const drawEl = document.querySelector(".drawfly");
-    placeFromRef.current = drawEl ? { id: card.id, rect: drawEl.getBoundingClientRect() } : null;
+    const fromRect = originRect || (drawEl ? drawEl.getBoundingClientRect() : null);
+    placeFromRef.current = fromRect ? { id: card.id, rect: fromRect } : null;
     setBusy2(true);
     setG({ ...gg, drawn: null, boards, dying: [], flips: (gg.flips || 0) + 1 });
 
@@ -565,13 +628,14 @@ function App() {
   const round = Math.floor((g && g.flips || 0) / 2) + 1;
   const roleOf = id => !attack ? null
     : (attack.attackerId === id ? "attacker" : (attack.victims.includes(id) ? "victim" : "bystander"));
+  const wide = useIsWide();
   const renderCard = (card, key) => card
-    ? <CardV key={card.id} c={card} dying={dying.includes(card.id)}
+    ? <CardV key={card.id} c={card} dying={dying.includes(card.id)} wide={wide}
         flyFrom={placeFromRef.current && placeFromRef.current.id === card.id ? placeFromRef.current.rect : null}
         role={roleOf(card.id)} phase={attack ? attack.phase : null} pulsing={pulse === card.id} />
     : <div key={key} className="slot" />;
   const drawSlot = side => (g && g.drawn && g.turn === side)
-    ? <DrawnCard key={g.drawn.id} c={g.drawn} deckRef={side === "a" ? aDeckRef : pDeckRef} side={side} />
+    ? <DrawnCard key={g.drawn.id} c={g.drawn} deckRef={side === "a" ? aDeckRef : pDeckRef} side={side} wide={wide} />
     : <div className="slot draw" />;
   const cols = [0, 1, 2].map(c => ({
     c, aCards: boards.a[c], pCards: boards.p[c],
@@ -580,8 +644,6 @@ function App() {
     aFx: handFx && handFx.side === "a" && handFx.col === c,
     pFx: handFx && handFx.side === "p" && handFx.col === c,
   }));
-
-  const wide = useIsWide();
 
   // Overlays (bet slip, result, settings, rules, deck view, turn toast, win
   // celebration) are position:fixed and identical for both layouts — share them.
@@ -736,7 +798,8 @@ function App() {
             {C.aFx && <div className={"handpop t" + handFx.tier}>{handFx.name} ×{handFx.m}</div>}
           </div>
           <div className="ddiv" aria-hidden="true" />
-          <div className={"half mine" + (C.tappable ? " tappable" : "") + (pHit ? " hit" : "") + (C.pFx ? " glow t" + handFx.tier : "")}
+          <div ref={el => (colRefs.current[C.c] = el)}
+            className={"half mine" + (C.tappable ? " tappable" : "") + (drag && drag.col === C.c ? " dragover" : "") + (pHit ? " hit" : "") + (C.pFx ? " glow t" + handFx.tier : "")}
             onClick={C.tappable ? () => onColTap(C.c) : undefined}>
             {[0, 1, 2].map(j => renderCard(C.pCards[j], "e" + j))}
             {C.pFx && <div className={"handpop t" + handFx.tier}>{handFx.name} ×{handFx.m}</div>}
@@ -795,7 +858,9 @@ function App() {
                     drew={g && g.drawn && g.turn === "p"}
                     idkey={g && g.drawn && g.turn === "p" ? "dp" + g.drawn.id : "pidle"}
                     onClick={g ? () => setDeckView("p") : undefined} />
-                  <div className="drawhold"><Label cls="you" owner="YOUR" noun="DRAW" />{drawSlot("p")}</div>
+                  <div className={"drawhold draghold" + (drag ? " dragging" : "")}
+                    onPointerDown={playerTurn ? startDrag : undefined}>
+                    <Label cls="you" owner="YOUR" noun="DRAW" />{drawSlot("p")}</div>
                 </div>
                 <div className="drailbet">
                   <div className="botbox bet"><span className="botlabel">BET</span><b>{fmt(stake)}</b></div>
@@ -808,10 +873,14 @@ function App() {
           <div className="dbot">
             <div className={"tapbanner" + (playerTurn ? " mine" : "")}>
               {phase !== "play" ? "PLACE YOUR BET"
-                : playerTurn ? "YOUR DRAW — CHOOSE A COLUMN"
+                : playerTurn ? "YOUR DRAW — DRAG OR TAP A COLUMN"
                 : "DEALER'S TURN…"}
             </div>
           </div>
+          {drag && g && g.drawn &&
+            <div className="dragghost" style={{ left: drag.x, top: drag.y }}>
+              <Face c={g.drawn} />
+            </div>}
         </div>
         {overlays}
       </React.Fragment>
@@ -1100,7 +1169,7 @@ function SettingsPanel({ g, onSetDraw, onAddDealer, onClose }) {
 // Drawn card: slides face-down from the deck pile to the draw slot,
 // then flips over. Flight vector is measured at mount so it stays
 // correct across screen sizes.
-function DrawnCard({ c, deckRef, side }) {
+function DrawnCard({ c, deckRef, side, wide }) {
   const ref = useRef(null);
   const [go, setGo] = useState(false);
   React.useLayoutEffect(() => {
@@ -1126,15 +1195,16 @@ function DrawnCard({ c, deckRef, side }) {
       <div className="flipinner">
         <div className={"face back " + (side === "a" ? "en" : "you")} />
         <div className={"face front" + (isRed(c.s) ? " red" : "")}>
-          <span className="cr">{rName(c.r)}</span>
-          <span className="cs">{c.s}</span>
+          {wide
+            ? <Face c={c} />
+            : <React.Fragment><span className="cr">{rName(c.r)}</span><span className="cs">{c.s}</span></React.Fragment>}
         </div>
       </div>
     </div>
   );
 }
 
-function CardV({ c, dying, flyFrom, role, phase, pulsing }) {
+function CardV({ c, dying, flyFrom, role, phase, pulsing, wide }) {
   const ref = useRef(null);
   // FLIP: a freshly-placed card mounts at its final slot, then we invert it back
   // to the draw-slot position and slide it in at a CONSTANT size (translate only,
@@ -1172,14 +1242,17 @@ function CardV({ c, dying, flyFrom, role, phase, pulsing }) {
     + (role ? " atk-" + role : "") + (role && phase ? " ph-" + phase : "");
   const idx = <span className="cr">{rName(c.r)}</span>;
   const suit = <span className="cs">{c.s}</span>;
+  // wide (desktop/tablet) shows a real cardmeister face; mobile keeps text pips.
+  const faceInner = wide ? <Face c={c} /> : <React.Fragment>{idx}{suit}</React.Fragment>;
+  const ripInner = wide ? <Face c={c} /> : <React.Fragment>{idx}{suit}</React.Fragment>;
   const ripping = role === "victim" && phase === "rip";
   return (
     <div ref={ref} className={cls}>
-      {idx}{suit}
+      {faceInner}
       {ripping && (
         <React.Fragment>
-          <span className="riphalf top">{idx}{suit}</span>
-          <span className="riphalf bot">{idx}{suit}</span>
+          <span className="riphalf top">{ripInner}</span>
+          <span className="riphalf bot">{ripInner}</span>
         </React.Fragment>
       )}
       {/* Fire VFX disabled for now — attacks use the rip only.
@@ -2378,6 +2451,40 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 /* bottom: full-width turn prompt */
 .dbot { display: flex; align-items: center; justify-content: center; gap: clamp(8px,1.4vw,16px); padding: 10px 0 4px; }
 .dbot .tapbanner { font-size: clamp(18px,2vw,28px); }
+
+/* ─── REAL CARD FACES (cardmeister) — wide/desktop/tablet layout only ─── */
+/* the <playing-card> renders an <img> SVG face; fill the slot, let the card's
+   own radius + overflow:hidden do the rounding. Mobile never mounts these. */
+/* absolute-fill each face: blockifies over cardmeister's inline display and
+   fills its (sized, position:relative/absolute) container — .cardv, .face.front,
+   .riphalf, .dragghost. */
+.pcface { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.pcface img { display: block; width: 100%; height: 100%; }
+.deskapp .riphalf { background: transparent; }   /* the face fills the half — no cream backing */
+/* Clip the card to cardmeister's OWN corner radius (rx=12 of a 240-wide viewBox ≈
+   3.5% of card height) instead of .cardv's larger 10px corners, which were
+   slicing the face. Transparent base so the aligned corners never show cream. */
+.deskapp .cardv, .deskapp .face.front { background: transparent; }
+.deskapp .cardv  { border-radius: calc(var(--cardh) * 0.035); }
+.deskapp .face.front { border-radius: calc(var(--drawh) * 0.035); }
+
+/* ─── DRAG-AND-DROP (wide only) ─── */
+.draghold { touch-action: none; }                /* tablets: drag the card, don't scroll the page */
+.draghold .drawfly { cursor: grab; }
+.draghold.dragging .drawfly { opacity: .28; }    /* the source card lifts out while dragging */
+.half.mine.dragover {                            /* the column the card is hovering over */
+  border-color: #fff;
+  background: rgba(244,198,76,.34);
+  box-shadow: 0 0 22px rgba(244,198,76,.6);
+  animation: none;                               /* steady highlight, not the tappable pulse */
+}
+.dragghost {                                     /* the floating card that follows the pointer */
+  position: fixed; z-index: 30;
+  width: var(--cardw); height: var(--cardh);
+  transform: translate(-50%, -50%) rotate(-4deg);
+  pointer-events: none;
+  filter: drop-shadow(0 10px 16px rgba(0,0,0,.6));
+}
 </style>
 </body>
 </html>
