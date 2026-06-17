@@ -732,7 +732,7 @@ function App() {
             <span>{C.aEv.name ? C.aEv.name + " ×" + C.aEv.m : "—"}</span>
           </div>
           <div className={"half dealer" + (aHit ? " hit" : "") + (C.aFx ? " glow t" + handFx.tier : "")}>
-            {[0, 1, 2].map(j => renderCard(C.aCards[j], "e" + j))}
+            {[2, 1, 0].map(j => renderCard(C.aCards[j], "e" + j))}
             {C.aFx && <div className={"handpop t" + handFx.tier}>{handFx.name} ×{handFx.m}</div>}
           </div>
           <div className="ddiv" aria-hidden="true" />
@@ -764,43 +764,53 @@ function App() {
               + (phase === "play" && g && g.turn === "p" ? " turn-you"
                 : phase === "play" && g && g.turn === "a" ? " turn-en" : "")}>
 
-            <div className="dstation en">
+            <aside className="drail en">
               <div className="dsthead en">DEALER</div>
-              <div className="dstbody">
-                <div className="drawhold"><Label cls="en" owner="DEALER'S" noun="DRAW" />{drawSlot("a")}</div>
-                <DeckPile side="a" count={g ? g.decks.a.length : 52} deckRef={aDeckRef}
-                  drew={g && g.drawn && g.turn === "a"}
-                  idkey={g && g.drawn && g.turn === "a" ? "da" + g.drawn.id : "aidle"}
-                  onClick={g ? () => setDeckView("a") : undefined} />
+              <div className="drailmid">
+                <div className="dtotal">
+                  <Label cls="en" owner="DEALER'S" noun="SCORE" />
+                  <ScoreTotal side="en" total={aTotal} winning={aWinning} />
+                </div>
+                <div className="dstack">
+                  <DeckPile side="a" count={g ? g.decks.a.length : 52} deckRef={aDeckRef}
+                    drew={g && g.drawn && g.turn === "a"}
+                    idkey={g && g.drawn && g.turn === "a" ? "da" + g.drawn.id : "aidle"}
+                    onClick={g ? () => setDeckView("a") : undefined} />
+                  <div className="drawhold"><Label cls="en" owner="DEALER'S" noun="DRAW" />{drawSlot("a")}</div>
+                </div>
               </div>
-            </div>
+            </aside>
 
-            <div className="dcenter">
-              <DFunnel side="en" total={aTotal} winning={aWinning} />
-              <div className="dcols">{cols.map(dColumn)}</div>
-              <DFunnel side="you" total={pTotal} winning={pWinning} />
-            </div>
+            <div className="dhero">{cols.map(dColumn)}</div>
 
-            <div className="dstation you">
+            <aside className="drail you">
               <div className="dsthead you">YOU</div>
-              <div className="dstbody">
-                <div className="drawhold"><Label cls="you" owner="YOUR" noun="DRAW" />{drawSlot("p")}</div>
-                <DeckPile side="p" count={g ? g.decks.p.length : 52} deckRef={pDeckRef}
-                  drew={g && g.drawn && g.turn === "p"}
-                  idkey={g && g.drawn && g.turn === "p" ? "dp" + g.drawn.id : "pidle"}
-                  onClick={g ? () => setDeckView("p") : undefined} />
+              <div className="drailmid">
+                <div className="dtotal">
+                  <Label cls="you" owner="YOUR" noun="SCORE" />
+                  <ScoreTotal side="you" total={pTotal} winning={pWinning} />
+                </div>
+                <div className="dstack">
+                  <DeckPile side="p" count={g ? g.decks.p.length : 52} deckRef={pDeckRef}
+                    drew={g && g.drawn && g.turn === "p"}
+                    idkey={g && g.drawn && g.turn === "p" ? "dp" + g.drawn.id : "pidle"}
+                    onClick={g ? () => setDeckView("p") : undefined} />
+                  <div className="drawhold"><Label cls="you" owner="YOUR" noun="DRAW" />{drawSlot("p")}</div>
+                </div>
+                <div className="drailbet">
+                  <div className="botbox bet"><span className="botlabel">BET</span><b>{fmt(stake)}</b></div>
+                  <div className="botbox payout"><span className="botlabel gold">PAYOUT</span><b>{fmt(stake * (2 - COMMISSION))}</b></div>
+                </div>
               </div>
-            </div>
+            </aside>
           </div>
 
           <div className="dbot">
-            <div className="botbox bet"><span className="botlabel">BET</span><b>{fmt(stake)}</b></div>
             <div className={"tapbanner" + (playerTurn ? " mine" : "")}>
               {phase !== "play" ? "PLACE YOUR BET"
                 : playerTurn ? "YOUR DRAW — CHOOSE A COLUMN"
                 : "DEALER'S TURN…"}
             </div>
-            <div className="botbox payout"><span className="botlabel gold">PAYOUT</span><b>{fmt(stake * (2 - COMMISSION))}</b></div>
           </div>
         </div>
         {overlays}
@@ -2287,11 +2297,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   padding: 12px clamp(14px,2vw,28px) calc(env(safe-area-inset-bottom) + 12px);
   font-family: 'Barlow', sans-serif; color: var(--text);
   user-select: none; -webkit-user-select: none;
-  /* one card size for everything — column cards == deck/draw cards. width-based
-     so 3 cards × 3 columns + 2 stations always fit across; height follows 5:7. */
-  --cardw: clamp(50px, 5.9vw, 92px);  --cardh: calc(var(--cardw) / 0.72);
+  /* one card size for everything — column cards == deck/draw cards. HEIGHT-based:
+     hands now stack vertically (mobile-style), so 6 cards tall per column is the
+     binding constraint, not width. width follows the 0.72 (5:7) ratio. */
+  --cardh: clamp(40px, 10dvh, 90px);  --cardw: calc(var(--cardh) * 0.72);
   --drawh: var(--cardh);              --draww: var(--cardw);
-  --scoreh: clamp(44px, 7dvh, 64px);
+  --scoreh: clamp(36px, 4.8dvh, 52px);
 }
 .deskapp.shake { animation: shake .5s ease-out; }
 
@@ -2303,35 +2314,44 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   background: rgba(0,0,0,.28); font-family: var(--cf); font-weight: 600;
   letter-spacing: 2px; font-size: clamp(13px,1.3vw,16px); color: #cdddd4; }
 
-/* board → three zones: dealer station · center · you station */
+/* board → three zones: dealer rail · hero (vertical hand columns) · you rail */
 .board.deskboard {
   flex: 1; display: grid;
-  grid-template-columns: clamp(108px,11.5vw,200px) 1fr clamp(108px,11.5vw,200px);
-  grid-template-rows: none; gap: clamp(12px,1.6vw,20px);
+  grid-template-columns: clamp(148px,14.5vw,224px) minmax(0,1fr) clamp(148px,14.5vw,224px);
+  grid-template-rows: none; gap: clamp(12px,1.6vw,22px);
   align-items: stretch; justify-content: stretch; padding: 0;
 }
 
-.dstation { border-radius: 14px; overflow: hidden; display: flex; flex-direction: column;
+/* ── flank rails: side header, running total (+ deck/draw, and bet on YOU) ── */
+.drail { border-radius: 14px; overflow: hidden; display: flex; flex-direction: column;
   box-shadow: 0 8px 24px rgba(0,0,0,.35), inset 0 0 40px rgba(0,0,0,.22); }
-.dstation.en  { background: linear-gradient(180deg,#4a1a18,#2a0f0e); border: 1px solid #7a3029; }
-.dstation.you { background: linear-gradient(180deg,#15324f,#0c1f33); border: 1px solid #2d5a82; }
+.drail.en  { background: linear-gradient(180deg,#4a1a18,#2a0f0e); border: 1px solid #7a3029; }
+.drail.you { background: linear-gradient(180deg,#15324f,#0c1f33); border: 1px solid #2d5a82; }
 .dsthead { font-family: var(--cf); font-weight: 700; font-size: clamp(18px,1.5vw,23px);
   letter-spacing: 2px; text-align: center; padding: 10px; background: rgba(0,0,0,.25); }
 .dsthead.en  { border-bottom: 1px solid rgba(255,120,90,.25); }
 .dsthead.you { border-bottom: 1px solid rgba(90,166,224,.3); }
-.dstbody { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: clamp(10px,1.6dvh,18px); padding: 16px; }
-.dstbody .deck, .dstbody .drawhold { gap: 6px; }
+/* content is top-aligned in both rails (total → deck → bet flow down from the header) */
+.drailmid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: clamp(14px,2.6dvh,28px); padding: clamp(12px,1.8dvh,20px) clamp(10px,1vw,16px); }
+.dtotal { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+/* a bigger total box than the mobile one — this is the rail's hero element */
+.drail .scorebox { height: clamp(50px,7.2dvh,76px); }
+.drail .scorebox b { font-size: clamp(26px,3vw,42px); }
+/* shorten the winning sunray beams ~50% vs the mobile 207% (beam length ∝ width) */
+.drail .sunrays { width: 104%; }
+.dstack { display: flex; flex-direction: column; align-items: center; gap: clamp(10px,1.8dvh,18px); }
+.dstack .deck, .dstack .drawhold { gap: 6px; }
+.drailbet { display: flex; flex-direction: column; align-items: stretch; gap: clamp(7px,1.1dvh,11px); width: 100%; }
+.drailbet .botbox { width: 100%; min-width: 0; }
 
-.dcenter { position: relative; display: flex; flex-direction: column; justify-content: center; gap: clamp(4px,0.8dvh,10px); min-width: 0; }
-/* columns sit ABOVE the funnel sunrays so the rays only shine behind them.
-   extra top margin keeps the dealer total clear of the column letter tabs. */
-.dcols { position: relative; z-index: 1; display: flex; gap: clamp(12px,1.6vw,20px);
-  align-items: stretch; margin-top: clamp(16px,2.2dvh,24px); }
-
-.dcolumn { position: relative; flex: 1; min-width: 0;
-  display: flex; flex-direction: column; align-items: center; gap: clamp(5px,0.8dvh,11px);
-  padding: clamp(13px,1.5dvh,19px) clamp(8px,1vw,14px) clamp(9px,1.1dvh,15px);
+/* ── hero: the three vertical hand columns, centred ── */
+.dhero { position: relative; display: flex; align-items: center; justify-content: center;
+  gap: clamp(14px,1.8vw,30px); min-width: 0; padding-top: clamp(14px,2dvh,22px); }
+.dcolumn { position: relative; flex: 1 1 0; min-width: 0; max-width: clamp(168px,21vw,280px);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: clamp(4px,0.7dvh,10px);
+  padding: clamp(15px,1.8dvh,21px) clamp(8px,1vw,14px) clamp(9px,1.1dvh,14px);
   border: 1px solid rgba(120,180,160,.28); border-radius: 16px;
   background: linear-gradient(180deg, rgba(90,34,28,.20) 0 50%, rgba(23,58,92,.18) 50% 100%);
   box-shadow: 0 8px 22px rgba(0,0,0,.28); }
@@ -2342,45 +2362,21 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 3px;
   font-family: var(--cf); font-weight: 700; font-size: 21px; color: var(--gold); }
 
-/* desktop card rows run horizontally (portrait stacks them vertically) */
-.deskapp .half { flex-direction: row; width: auto; gap: clamp(5px,0.7vw,10px);
-  padding: clamp(5px,0.7dvh,9px); border-radius: 11px; }
+/* hands stack vertically (mobile-style) — the whole point of this layout */
+.deskapp .half { flex-direction: column; width: auto; gap: clamp(3px,0.5dvh,7px);
+  padding: clamp(4px,0.6dvh,8px); border-radius: 11px; }
 .deskapp .colscore { height: auto; min-height: var(--scoreh); width: 100%; }
 .deskapp .colscore .scoreop { display: none; }
-.deskapp .colscore span { font-size: clamp(15px,1.7vw,23px); margin-top: 2px; }
+.deskapp .colscore b { font-size: clamp(20px,2.2vw,30px); }
+.deskapp .colscore span { font-size: clamp(12px,1.3vw,17px); margin-top: 2px; }
 
 .ddiv { position: relative; width: 84%; height: 0; border-top: 2px solid var(--gold-dim); margin: 1px 0; }
 .ddiv::after { content: ""; position: absolute; left: 50%; top: 50%;
   transform: translate(-50%,-50%) rotate(45deg); width: 11px; height: 11px;
   background: var(--gold); box-shadow: 0 0 8px rgba(244,198,76,.5); }
 
-.dfunnel { position: relative; height: clamp(80px,11dvh,98px); }
-.dfunnel .dfsvg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .85; }
-/* centre without transform — a transform here would create a stacking context
-   that traps the sunrays and stops them sitting behind the rest of the UI */
-.dfunnel .dtotwrap { position: absolute; left: 50%; margin-left: calc(clamp(150px,15vw,178px) * -0.5);
-  width: clamp(150px,15vw,178px); display: flex; flex-direction: column; align-items: center; }
-.dfunnel.en  .dtotwrap { top: 0; }
-.dfunnel.you .dtotwrap { bottom: 0; }
-/* sunrays sit on a negative layer so they shine BEHIND every other element;
-   width 124% (vs the mobile 207%) makes the rays ~40% shorter */
-.dfunnel .sunrays { z-index: -1; width: 124%; }
-/* label sits just on top of the box (no layout shift when the crown appears) */
-.dfunnel .dmk { display: block; font-family: var(--cf); font-weight: 700; font-size: clamp(13px,1.2vw,17px);
-  letter-spacing: 2px; color: var(--gold-soft); margin-bottom: 3px; }
-.dfunnel .dmedalwrap { position: relative; width: 100%; display: flex; justify-content: center; }
-/* tall box — the number is centred, leaving room at the top for the crown (mobile-style) */
-.dfunnel .dmedal { position: relative; z-index: 1; width: 100%; height: clamp(58px,8dvh,74px);
-  display: flex; align-items: center; justify-content: center; padding: 0 12px;
-  background: #0f2c1f; border: 2px solid var(--gold); border-radius: 13px;
-  box-shadow: 0 0 18px rgba(244,198,78,.22); }
-.dfunnel .dmedal b { font-family: var(--cf); font-weight: 700; font-size: clamp(24px,2.6vw,36px); line-height: .85; color: var(--gold); }
-.dfunnel.win .dmedal { box-shadow: 0 0 26px rgba(244,198,78,.5); border-color: var(--gold-soft); }
-/* crown perches inside the box's top space — same as the mobile total */
-.dfunnel .crown { width: clamp(20px,2.2vw,26px); bottom: auto; top: 2px; margin-bottom: 0; }
-
-.dbot { display: flex; align-items: stretch; gap: clamp(8px,1.4vw,16px); padding: 12px 0 6px; }
-.dbot .botbox { min-width: clamp(96px,9vw,130px); }
+/* bottom: full-width turn prompt */
+.dbot { display: flex; align-items: center; justify-content: center; gap: clamp(8px,1.4vw,16px); padding: 10px 0 4px; }
 .dbot .tapbanner { font-size: clamp(18px,2vw,28px); }
 </style>
 </body>
