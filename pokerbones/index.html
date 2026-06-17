@@ -778,6 +778,20 @@ function App() {
     </React.Fragment>
   );
 
+  // The card that follows the pointer during a drag — a real face on the wide
+  // layout, a text card on mobile (matching each layout's cards). Rendered inside
+  // each layout root so the --cardw/--cardh vars resolve.
+  const dragGhost = drag && g && g.drawn ? (
+    <div className="dragghost" style={{ left: drag.x, top: drag.y }}>
+      {wide
+        ? <Face c={g.drawn} />
+        : <div className={"cardv ghostcard" + (isRed(g.drawn.s) ? " red" : "")}>
+            <span className="cr">{rName(g.drawn.r)}</span>
+            <span className="cs">{g.drawn.s}</span>
+          </div>}
+    </div>
+  ) : null;
+
   // ─── DESKTOP / TABLET (wide) LAYOUT ───
   // Reuses the same .board / .half / .colscore / .handpop class names so every
   // attack, hit, glow and turn-dimming effect works untouched; only the layout
@@ -877,10 +891,7 @@ function App() {
                 : "DEALER'S TURN…"}
             </div>
           </div>
-          {drag && g && g.drawn &&
-            <div className="dragghost" style={{ left: drag.x, top: drag.y }}>
-              <Face c={g.drawn} />
-            </div>}
+          {dragGhost}
         </div>
         {overlays}
       </React.Fragment>
@@ -946,7 +957,8 @@ function App() {
           const hit = C.pCards.some(x => dying.includes(x.id));
           return (
             <div key={"ph" + C.c}
-              className={"half mine" + (C.tappable ? " tappable" : "") + (hit ? " hit" : "") + (C.pFx ? " glow t" + handFx.tier : "")}
+              ref={el => (colRefs.current[C.c] = el)}
+              className={"half mine" + (C.tappable ? " tappable" : "") + (drag && drag.col === C.c ? " dragover" : "") + (hit ? " hit" : "") + (C.pFx ? " glow t" + handFx.tier : "")}
               onClick={C.tappable ? () => onColTap(C.c) : undefined}>
               {[0, 1, 2].map(j => renderCard(C.pCards[j], "e" + j))}
               {C.pFx && <div className={"handpop t" + handFx.tier}>{handFx.name} ×{handFx.m}</div>}
@@ -955,7 +967,9 @@ function App() {
         })}
         <div className="railcell railcards you">
           <div className="rdd">
-            <div className="drawhold"><Label cls="you" owner="YOUR" noun="DRAW" />{drawSlot("p")}</div>
+            <div className={"drawhold draghold" + (drag ? " dragging" : "")}
+              onPointerDown={playerTurn ? startDrag : undefined}>
+              <Label cls="you" owner="YOUR" noun="DRAW" />{drawSlot("p")}</div>
             <DeckPile side="p" count={g ? g.decks.p.length : 52} deckRef={pDeckRef}
               drew={g && g.drawn && g.turn === "p"}
               idkey={g && g.drawn && g.turn === "p" ? "dp" + g.drawn.id : "pidle"}
@@ -984,7 +998,7 @@ function App() {
         </div>
         <div className={"tapbanner" + (playerTurn ? " mine" : "")}>
           {phase !== "play" ? "PLACE YOUR BET"
-            : playerTurn ? "YOUR DRAW — TAP A COLUMN"
+            : playerTurn ? "YOUR DRAW — DRAG OR TAP A COLUMN"
             : "DEALER'S TURN…"}
         </div>
         <div className="botbox payout">
@@ -993,6 +1007,7 @@ function App() {
         </div>
       </div>
 
+      {dragGhost}
       {overlays}
     </div>
   );
@@ -2485,6 +2500,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   pointer-events: none;
   filter: drop-shadow(0 10px 16px rgba(0,0,0,.6));
 }
+.dragghost .cardv { width: 100%; height: 100%; }  /* mobile text-card ghost fills the ghost box */
 </style>
 </body>
 </html>
