@@ -2002,7 +2002,15 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 /* fire tint disabled for now — attacks use the rip only:
 .cardv.atk-victim.ph-burn   { filter: saturate(1.5) brightness(1.06); transition: filter .2s; } */
 .cardv.atk-victim.ph-rip    { background: transparent; box-shadow: none; }
-.cardv.atk-victim.ph-rip > .cr, .cardv.atk-victim.ph-rip > .cs { display: none; }
+/* Hide the intact base face while it tears, leaving only the two .riphalf
+   faces. Direct-child `>` keeps the .riphalf faces (grandchildren) showing.
+   Mobile pips are plain spans, so display:none suffices. The desktop
+   cardmeister <playing-card> sets an inline `display:inline-block` on upgrade,
+   which outranks a class rule — so hiding it needs `!important`. Without this
+   the base face stayed under the tearing halves and desktop showed two faces. */
+.cardv.atk-victim.ph-rip > .cr,
+.cardv.atk-victim.ph-rip > .cs { display: none; }
+.cardv.atk-victim.ph-rip > .pcface { display: none !important; }
 
 /* single-shot pack fire sprite, drawn larger than the card */
 .fx { position: absolute; inset: -35%; z-index: 10; pointer-events: none; background-repeat: no-repeat; background-position: 0 0; }
